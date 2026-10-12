@@ -14,6 +14,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "accounts",
+    "mozilla_django_oidc",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -38,6 +39,27 @@ TEMPLATES = [
     },
 ]
 AUTH_USER_MODEL = "accounts.User"
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+    "accounts.oidc.GoogleOIDCBackend",
+]
+GOOGLE_OIDC_CLIENT_ID = os.environ.get("GOOGLE_OIDC_CLIENT_ID", "")
+GOOGLE_OIDC_CLIENT_SECRET = os.environ.get("GOOGLE_OIDC_CLIENT_SECRET", "")
+GOOGLE_OIDC_CALLBACK_URL = os.environ.get("GOOGLE_OIDC_CALLBACK_URL", "")
+OIDC_RP_CLIENT_ID = GOOGLE_OIDC_CLIENT_ID
+OIDC_RP_CLIENT_SECRET = GOOGLE_OIDC_CLIENT_SECRET
+OIDC_AUTHENTICATION_CALLBACK_URL = "oidc_callback"
+OIDC_OP_AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
+OIDC_OP_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+OIDC_OP_USER_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo"
+OIDC_OP_JWKS_ENDPOINT = "https://www.googleapis.com/oauth2/v3/certs"
+OIDC_OP_ISSUER = "https://accounts.google.com"
+OIDC_RP_SIGN_ALGO = "RS256"
+OIDC_USE_NONCE = True
+OIDC_USE_PKCE = True
+OIDC_STATE_TIMEOUT = 600
+OIDC_STORE_ACCESS_TOKEN = False
+OIDC_STORE_ID_TOKEN = False
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )

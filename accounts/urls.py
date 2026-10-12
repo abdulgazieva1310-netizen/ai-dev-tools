@@ -2,6 +2,11 @@ from django.contrib.auth import views as auth_views
 from django.urls import path, reverse_lazy
 
 from accounts.forms import AccountAuthenticationForm, AccountPasswordResetForm
+from accounts.oidc import (
+    GoogleCallbackView,
+    GoogleLoginView,
+    link_google_identity,
+)
 from accounts.views import (
     RegistrationView,
     email_verification_required,
@@ -11,6 +16,9 @@ from accounts.views import (
 )
 
 urlpatterns = [
+    path("google/login/", GoogleLoginView.as_view(), name="google_login"),
+    path("google/link/", link_google_identity, name="google_link"),
+    path("oidc/callback/", GoogleCallbackView.as_view(), name="oidc_callback"),
     path("register/", RegistrationView.as_view(), name="register"),
     path(
         "verify-email/required/",

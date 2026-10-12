@@ -60,3 +60,19 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+
+
+class ExternalIdentity(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="identities")
+    provider = models.CharField(max_length=32)
+    subject = models.CharField(max_length=255)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("provider", "subject"), name="unique_external_provider_subject"
+            ),
+            models.UniqueConstraint(
+                fields=("provider", "user"), name="unique_external_provider_user"
+            ),
+        ]

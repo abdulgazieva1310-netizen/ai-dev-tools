@@ -62,3 +62,14 @@ accounts can authenticate.
 The user model is configured as `AUTH_USER_MODEL` and defined in `accounts/0001_initial.py`. Keep it in the account app's initial migration
 before creating initial migrations for other project apps; Django apps that reference users must depend on the swappable user model. For a
 fresh local database, apply migrations with `uv run python manage.py migrate` (or `docker compose exec web python manage.py migrate`).
+
+## Google sign-in
+
+Create an OAuth client in Google Cloud and set `GOOGLE_OIDC_CLIENT_ID`,
+`GOOGLE_OIDC_CLIENT_SECRET`, and `GOOGLE_OIDC_CALLBACK_URL` in your local `.env`.
+Register the same callback URL with Google. For local development, use
+`http://localhost:8000/oidc/callback/`. Never commit real credentials.
+
+The app uses Google OpenID Connect at `/google/login/`; signed-in users can
+explicitly link an identity at `/google/link/`. The external identity table keeps
+Google's stable subject identifier. Account matching by email does not link identities.
