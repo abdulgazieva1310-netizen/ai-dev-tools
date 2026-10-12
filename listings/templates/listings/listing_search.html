@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Search lessons</title></head>
+  <body>
+    <main>
+      <h1>Search lessons</h1>
+      <form method="get" action="{% url 'listing_search' %}">
+        <label>Search <input type="search" name="q" value="{{ selected.q }}"></label>
+        <label>Category
+          <select name="category"><option value="">Any category</option>
+            {% for category in categories %}<option value="{{ category.pk }}" {% if selected.category == category.pk|stringformat:'s' %}selected{% endif %}>{{ category.name }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Skill
+          <select name="skill"><option value="">Any skill</option>
+            {% for skill in skills %}<option value="{{ skill.pk }}" {% if selected.skill == skill.pk|stringformat:'s' %}selected{% endif %}>{{ skill.name }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Type
+          <select name="type"><option value="">Any type</option>
+            {% for value,label in types %}<option value="{{ value }}" {% if selected.type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Level
+          <select name="level"><option value="">Any level</option>
+            {% for value,label in levels %}<option value="{{ value }}" {% if selected.level == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Teacher language <input name="language" value="{{ selected.language }}"></label>
+        <button type="submit">Search</button>
+        <a href="{% url 'listing_search' %}">Clear filters</a>
+      </form>
+      {% if page_obj.object_list %}
+        <ul>
+          {% for listing in page_obj %}
+            <li><a href="{% url 'listing_detail' listing.pk %}">{{ listing.title }}</a> — {{ listing.skill.name }} ({{ listing.category.name }})</li>
+          {% endfor %}
+        </ul>
+      {% else %}<p>No published lessons match these filters.</p>{% endif %}
+      {% if page_obj.has_previous %}<a href="?{{ pagination_query }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+      <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}<a href="?{{ pagination_query }}&amp;page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+    </main>
+  </body>
+</html>

@@ -90,3 +90,17 @@ verified members can create lesson drafts at `/lessons/` and submit complete les
 for staff review. Staff publish or reject pending lessons in Django Admin. Only
 published lessons appear to learners, and profile visibility rules also apply to
 lesson details. Apply the listings schema with `uv run python manage.py migrate`.
+
+## Listing search tests
+
+The regular SQLite suite is `uv run pytest`. PostgreSQL full-text matching and
+ranking require the Compose database. From a fresh checkout, run these exact
+commands to start it, apply migrations, and run PostgreSQL-specific search
+assertions (which fail if the PostgreSQL run is misconfigured to use SQLite):
+
+```sh
+cp .env.example .env
+docker compose up --build -d
+docker compose exec web python manage.py migrate
+docker compose exec web pytest tests/test_listing_search.py
+```

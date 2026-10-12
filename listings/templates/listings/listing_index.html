@@ -4,6 +4,7 @@
   <body>
     <main>
       <h1>Live lessons</h1>
+      <p><a href="{% url 'listing_search' %}">Search lessons</a></p>
       {% if request.user.is_authenticated and request.user.is_active %}
         <p><a href="{% url 'listing_create' %}">Create a live lesson</a></p>
       {% endif %}

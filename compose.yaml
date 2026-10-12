@@ -4,6 +4,8 @@ services:
     command: python manage.py runserver 0.0.0.0:8000
     env_file:
       - .env
+    environment:
+      RUN_POSTGRES_SEARCH_TESTS: "1"
     ports:
       - "8000:8000"
     depends_on:

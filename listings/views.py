@@ -7,6 +7,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from listings.forms import ListingForm
 from listings.models import Listing
+from listings.search import search_listings
 from listings.workflow import transition_owner_listing
 from profiles.models import Profile
 from profiles.views import profile_visible_to
@@ -38,6 +39,18 @@ def listing_index(request):
         listing for listing in candidates if owner_can_see(listing, request.user)
     ]
     return render(request, "listings/listing_index.html", {"listings": visible})
+
+
+@require_http_methods(["GET"])
+def listing_search(request):
+    page, context = search_listings(request.GET, request.user)
+    query = request.GET.copy()
+    query.pop("page", None)
+    return render(
+        request,
+        "listings/listing_search.html",
+        {**context, "page_obj": page, "pagination_query": query.urlencode()},
+    )
 
 
 @require_http_methods(["GET"])
