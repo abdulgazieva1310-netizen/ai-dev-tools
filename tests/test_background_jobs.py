@@ -13,6 +13,7 @@ import threading
 from datetime import timedelta
 
 import pytest
+from django.conf import settings
 from django.core.management import call_command
 from django.db import connection, transaction
 from django.test import override_settings
@@ -27,10 +28,17 @@ from jobs.job_types import (
     register_job_type,
     unregister_job_type,
 )
-from jobs.models import BackgroundJob, compute_backoff_delay
+from jobs.models import (
+    BackgroundJob,
+    backoff_base_seconds,
+    compute_backoff_delay,
+    max_attempts,
+)
+from jobs.sanitize import sanitize_error_summary
 
 HANDLER_CALLS: list[tuple[str, dict]] = []
 FLAKY_FAILURES_REMAINING = {"count": 0}
+SECRET_FAILURE = {"error": RuntimeError("boom")}
 
 
 def require_postgres():
@@ -72,13 +80,22 @@ def _idempotent_handler(payload):
     )
 
 
+@register_handler("test_secret")
+def _secret_handler(payload):
+    """Raise a caller supplied exception, to exercise summary sanitization."""
+    HANDLER_CALLS.append(("test_secret", payload))
+    raise SECRET_FAILURE["error"]
+
+
 @pytest.fixture(autouse=True)
 def _clean_handler_state():
     HANDLER_CALLS.clear()
     FLAKY_FAILURES_REMAINING["count"] = 0
+    SECRET_FAILURE["error"] = RuntimeError("boom")
     yield
     HANDLER_CALLS.clear()
     FLAKY_FAILURES_REMAINING["count"] = 0
+    SECRET_FAILURE["error"] = RuntimeError("boom")
 
 
 @pytest.fixture
@@ -339,6 +356,42 @@ def test_max_attempts_is_configurable(user):
     assert job.status == BackgroundJob.Status.PERMANENT_FAILURE
 
 
+def test_job_limits_are_read_from_settings_with_the_documented_defaults():
+    assert settings.BACKGROUND_JOB_MAX_ATTEMPTS == 5
+    assert settings.BACKGROUND_JOB_BACKOFF_BASE_SECONDS == 30
+    assert max_attempts() == settings.BACKGROUND_JOB_MAX_ATTEMPTS
+    assert backoff_base_seconds() == 30
+    assert compute_backoff_delay(1) == 30
+
+
+@override_settings(
+    BACKGROUND_JOB_MAX_ATTEMPTS=9,
+    BACKGROUND_JOB_LEASE_SECONDS=120,
+    BACKGROUND_JOB_BACKOFF_BASE_SECONDS=3,
+)
+def test_configured_job_limits_are_the_ones_that_are_used():
+    assert max_attempts() == 9
+    assert worker.lease_seconds() == 120
+    assert compute_backoff_delay(1) == 3
+
+
+def test_job_defaults_are_not_duplicated_in_the_jobs_package():
+    """`config/settings.py` is the only definition of the retry/backoff limits.
+
+    A second copy in `jobs/` can never win, and only invites the two drifting
+    apart (mutation testing showed the old fallback was dead code).
+    """
+    from jobs import models
+
+    for name in (
+        "DEFAULT_MAX_ATTEMPTS",
+        "DEFAULT_BACKOFF_BASE_SECONDS",
+        "DEFAULT_BACKOFF_MAX_SECONDS",
+    ):
+        assert not hasattr(models, name), f"jobs.models.{name} is a shadowed default"
+    assert not hasattr(worker, "DEFAULT_BATCH_SIZE")
+
+
 @pytest.mark.django_db
 def test_error_summary_is_sanitized_and_truncated(user, caplog):
     FLAKY_FAILURES_REMAINING["count"] = 1
@@ -352,6 +405,145 @@ def test_error_summary_is_sanitized_and_truncated(user, caplog):
     assert len(job.error_summary) <= 200
     assert "RuntimeError" in job.error_summary
     assert "hunter2" not in caplog.text
+
+
+# --- criterion: no secret reaches error_summary or payload --------------------
+
+# Every shape here leaked at least one credential value into the durable row.
+AUTHORIZATION_SECRET = "sk-live-SECRET-TOKEN-123456"
+AUTHORIZATION_ERROR = (
+    f"RuntimeError: connect failed: Authorization: Bearer {AUTHORIZATION_SECRET}"
+)
+
+LEAKED_SUMMARY_SHAPES = [
+    pytest.param(
+        AUTHORIZATION_ERROR,
+        AUTHORIZATION_SECRET,
+        id="authorization-bearer",
+    ),
+    pytest.param(
+        "HTTPError: client_secret: abc123 rejected", "abc123", id="client-secret"
+    ),
+    pytest.param(
+        "trace: Set-Cookie: sessionid=abc123def", "abc123def", id="set-cookie"
+    ),
+    pytest.param(
+        "token=Bearer sk-live-1234567890", "sk-live-1234567890", id="token-bearer"
+    ),
+    pytest.param("api_key=abc123xyz", "abc123xyz", id="api-key"),
+    pytest.param("x-api-key: abc123xyz rejected", "abc123xyz", id="prefixed-api-key"),
+    pytest.param("password: 's3cret-value'", "s3cret-value", id="quoted-password"),
+    pytest.param(
+        'send failed headers={"Authorization": "Bearer sk-live-abc123"}',
+        "sk-live-abc123",
+        id="header-dict",
+    ),
+    pytest.param(
+        "unauthorized sk-live-SECRET-TOKEN-123456 for user 7",
+        "sk-live-SECRET-TOKEN-123456",
+        id="bare-provider-token",
+    ),
+]
+
+
+@pytest.mark.parametrize("message, secret", LEAKED_SUMMARY_SHAPES)
+def test_error_summary_removes_the_credential_not_just_the_keyword(message, secret):
+    summary = sanitize_error_summary(message)
+
+    assert secret not in summary, summary
+    assert "[redacted]" in summary, summary
+    # Redaction must be stable: the worker sanitizes before logging and the model
+    # sanitizes again when the failure is recorded.
+    assert sanitize_error_summary(summary) == summary
+
+
+@pytest.mark.django_db
+def test_error_summary_still_keeps_the_surrounding_message():
+    summary = sanitize_error_summary(AUTHORIZATION_ERROR)
+    assert summary.startswith("RuntimeError: connect failed:")
+    assert AUTHORIZATION_SECRET not in summary
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("message, secret", LEAKED_SUMMARY_SHAPES)
+def test_persisted_error_summary_never_contains_the_secret(
+    message, secret, caplog, request
+):
+    SECRET_FAILURE["error"] = RuntimeError(message)
+    job = make_due_job("test_secret", key=f"secret-{request.node.callspec.id}")
+
+    with caplog.at_level(logging.WARNING, logger="jobs.worker"):
+        worker.run_once()
+
+    job.refresh_from_db()
+    stored = BackgroundJob.objects.get(pk=job.pk).error_summary
+    assert secret not in stored, stored
+    assert secret not in job.error_summary, job.error_summary
+    assert secret not in caplog.text
+    assert "[redacted]" in stored
+
+
+@pytest.mark.django_db
+def test_summary_of_a_long_secret_free_error_is_still_truncated():
+    summary = sanitize_error_summary("RuntimeError: " + "detail " * 60)
+    assert len(summary) <= 200
+    assert summary.endswith("...")
+    assert "RuntimeError" in summary
+
+
+LEAKED_PAYLOAD_VALUES = [
+    pytest.param(
+        {"note": "my token is Bearer sk-live-PAYLOAD-LEAK-9988"},
+        id="bearer-token",
+    ),
+    pytest.param({"note": "sk-live-PAYLOAD-LEAK-9988"}, id="bare-provider-token"),
+    pytest.param({"note": "client_secret: abc123"}, id="client-secret"),
+    pytest.param({"note": "sessionid=abc123def"}, id="session-id"),
+    pytest.param({"note": "api_key=abc123xyz"}, id="api-key"),
+    pytest.param({"s": "A" * 33}, id="opaque-run"),
+    pytest.param(
+        {"nested": {"note": "Bearer sk-live-PAYLOAD-LEAK-9988"}},
+        id="nested-secret",
+    ),
+    pytest.param(
+        {"refs": [1, "Bearer sk-live-PAYLOAD-LEAK-9988"]}, id="secret-in-list"
+    ),
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("payload", LEAKED_PAYLOAD_VALUES)
+def test_payload_values_that_look_like_secrets_are_rejected(payload):
+    with pytest.raises(ValueError, match="looks like a credential"):
+        enqueue("test_noop", payload, idempotency_key="leaky-payload")
+
+    assert not BackgroundJob.objects.exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "key", ["client_secret", "set-cookie", "aws_secret_access_key", "x-api-token"]
+)
+def test_payload_keys_that_look_sensitive_are_rejected(key):
+    with pytest.raises(ValueError, match="looks sensitive"):
+        enqueue("test_noop", {"user_id": 1, key: "value"}, idempotency_key=f"key-{key}")
+
+    assert not BackgroundJob.objects.exists()
+
+
+@pytest.mark.django_db
+def test_record_references_are_still_accepted():
+    result = enqueue(
+        "test_noop",
+        {"listing_id": 42, "external_id": "123e4567-e89b-12d3-a456-426614174000"},
+        idempotency_key="references-ok",
+    )
+
+    assert result.created
+    assert BackgroundJob.objects.get().payload == {
+        "listing_id": 42,
+        "external_id": "123e4567-e89b-12d3-a456-426614174000",
+    }
 
 
 @pytest.mark.django_db

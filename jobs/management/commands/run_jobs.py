@@ -23,15 +23,13 @@ class Command(BaseCommand):
         parser.add_argument(
             "--poll-interval",
             type=float,
-            default=getattr(settings, "BACKGROUND_JOB_POLL_INTERVAL", 15),
-            help="Seconds to sleep when no due jobs are found (default 15).",
+            default=settings.BACKGROUND_JOB_POLL_INTERVAL,
+            help="Seconds to sleep when no due jobs are found (default 5).",
         )
         parser.add_argument(
             "--batch-size",
             type=int,
-            default=getattr(
-                settings, "BACKGROUND_JOB_BATCH_SIZE", worker.DEFAULT_BATCH_SIZE
-            ),
+            default=settings.BACKGROUND_JOB_BATCH_SIZE,
             help="Maximum jobs claimed per iteration (default 10).",
         )
 

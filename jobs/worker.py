@@ -21,13 +21,11 @@ from jobs.sanitize import sanitize_error_summary
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BATCH_SIZE = 10
-
 
 def _batch_size(limit=None) -> int:
     if limit is not None:
         return limit
-    return int(getattr(settings, "BACKGROUND_JOB_BATCH_SIZE", DEFAULT_BATCH_SIZE))
+    return int(settings.BACKGROUND_JOB_BATCH_SIZE)
 
 
 def claim_due_jobs(*, now=None, limit=None) -> list[BackgroundJob]:

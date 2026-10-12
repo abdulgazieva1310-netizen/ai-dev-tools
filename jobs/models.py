@@ -8,38 +8,29 @@ from django.utils import timezone
 from jobs.job_types import JOB_TYPE_MAX_LENGTH, is_allowed_job_type
 from jobs.sanitize import sanitize_error_summary
 
-DEFAULT_MAX_ATTEMPTS = 5
-DEFAULT_BACKOFF_BASE_SECONDS = 30
-DEFAULT_BACKOFF_MAX_SECONDS = 3600
-
 
 def max_attempts() -> int:
-    """Maximum number of attempts before a job fails permanently."""
-    return int(getattr(settings, "BACKGROUND_JOB_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS))
+    """Maximum number of attempts before a job fails permanently.
+
+    ``BACKGROUND_JOB_MAX_ATTEMPTS`` is the single source of truth: it is defined
+    once in ``config/settings.py`` (itself overridable from the environment).
+    There is deliberately no second, unreachable copy of the default here — a
+    fallback that settings always overrides is misleading, and it silently
+    disagrees with the configured value when it is changed.
+    """
+    return int(settings.BACKGROUND_JOB_MAX_ATTEMPTS)
 
 
 def lease_seconds() -> int:
-    return int(getattr(settings, "BACKGROUND_JOB_LEASE_SECONDS", 60))
+    return int(settings.BACKGROUND_JOB_LEASE_SECONDS)
 
 
 def backoff_base_seconds() -> int:
-    return int(
-        getattr(
-            settings,
-            "BACKGROUND_JOB_BACKOFF_BASE_SECONDS",
-            DEFAULT_BACKOFF_BASE_SECONDS,
-        )
-    )
+    return int(settings.BACKGROUND_JOB_BACKOFF_BASE_SECONDS)
 
 
 def backoff_max_seconds() -> int:
-    return int(
-        getattr(
-            settings,
-            "BACKGROUND_JOB_BACKOFF_MAX_SECONDS",
-            DEFAULT_BACKOFF_MAX_SECONDS,
-        )
-    )
+    return int(settings.BACKGROUND_JOB_BACKOFF_MAX_SECONDS)
 
 
 def compute_backoff_delay(attempt: int) -> float:

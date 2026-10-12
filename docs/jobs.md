@@ -103,15 +103,36 @@ Handlers must be idempotent: a crash after the handler's own writes but before
 
 ## Payloads and error summaries
 
-`jobs.sanitize` keeps stored data small and non-sensitive:
+`jobs.sanitize` keeps stored data small and non-sensitive. The contract is
+**reject, never rewrite**: if a payload carries anything that looks like a
+credential, `enqueue()` raises `ValueError` rather than storing a mangled value,
+so a caller bug is loud instead of silent.
 
 - payloads must be a mapping of record references, at most 4 KiB encoded, at
   most 3 levels deep, with string values of at most 200 characters;
-- keys that look sensitive (`password`, `token`, `secret`, `authorization`, …)
-  are rejected outright, and `bytes`/media are never accepted;
-- error summaries are redacted (secret-looking values become `[redacted]`),
-  whitespace-collapsed and capped at 200 characters, in the database, in the
-  worker log and in the admin.
+- keys that look sensitive (`password`, `token`, `secret`, `client_secret`,
+  `authorization`, `api_key`, `cookie`, `session_id`, …) are rejected outright,
+  and `bytes`/media are never accepted;
+- **values** are inspected too: a string value that looks like a credential
+  (`Bearer sk-live-…`, `client_secret: …`, `sk-live-…`, a long opaque run) is
+  rejected. Plain record references — numbers, UUIDs, short identifiers — stay
+  enqueueable;
+- error summaries are redacted, whitespace-collapsed and capped at 200
+  characters, in the database, in the worker log and in the admin.
+
+Redaction always consumes the value with its name, so nothing is orphaned:
+
+| Input | Stored summary |
+| --- | --- |
+| `Authorization: Bearer sk-live-123` | `Authorization: [redacted]` |
+| `client_secret: abc123 rejected` | `client_secret: [redacted]` |
+| `Set-Cookie: sessionid=abc123def` | `Set-Cookie: [redacted]` |
+| `password: 's3cret-value'` | `password: [redacted]` |
+
+The name is kept so the summary still says *what* was rejected; only the value
+disappears. Redaction is idempotent, because the worker sanitizes a summary
+before logging it and `record_failure()` sanitizes it again. Over-redaction is
+the safe direction: a summary may lose words, it must never keep a credential.
 
 ## Configuration
 
@@ -127,6 +148,10 @@ Handlers must be idempotent: a crash after the handler's own writes but before
 Keep `BACKGROUND_JOB_LEASE_SECONDS` comfortably longer than the slowest handler;
 a lease that expires while a handler is still running lets a second worker pick
 the same job up.
+
+These defaults live in `config/settings.py` only. The code reads them straight
+from `settings` (`jobs.models.max_attempts()`, `jobs.worker`), so there is no
+second copy in `jobs/` that could silently disagree with the configured value.
 
 ## Tests
 
