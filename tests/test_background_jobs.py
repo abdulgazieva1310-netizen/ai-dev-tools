@@ -34,7 +34,7 @@ from jobs.models import (
     compute_backoff_delay,
     max_attempts,
 )
-from jobs.sanitize import sanitize_error_summary
+from jobs.sanitize import redact_secrets, sanitize_error_summary
 
 HANDLER_CALLS: list[tuple[str, dict]] = []
 FLAKY_FAILURES_REMAINING = {"count": 0}
@@ -443,6 +443,46 @@ LEAKED_SUMMARY_SHAPES = [
         "sk-live-SECRET-TOKEN-123456",
         id="bare-provider-token",
     ),
+    # Real provider formats: an unseparated fixed body, a dot separator, and a
+    # bare short run. None of these is caught by a ``prefix[-_]value`` rule.
+    pytest.param(
+        "auth failed with AKIAIOSFODNN7EXAMPLE", "AKIAIOSFODNN7EXAMPLE", id="aws-key-id"
+    ),
+    pytest.param(
+        "auth failed with ya29.a0AfH6SMBx1234567890",
+        "ya29.a0AfH6SMBx1234567890",
+        id="google-oauth-token",
+    ),
+    pytest.param(
+        "auth failed with SECRETTOKEN1234567890",
+        "SECRETTOKEN1234567890",
+        id="keyword-free-opaque-run",
+    ),
+    pytest.param(
+        "RuntimeError: jwt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9 rejected",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        id="jwt-header",
+    ),
+    pytest.param(
+        "github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz rejected",
+        "github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz",
+        id="github-fine-grained-pat",
+    ),
+    pytest.param(
+        "slack said " + "xox" + "b-1234567890-abcdefghijklmnop",
+        "xox" + "b-1234567890-abcdefghijklmnop",
+        id="slack-bot-token",
+    ),
+    pytest.param(
+        "sendgrid SG.abc123def456ghi789jkl.mnop456qrs789tuv012wxy rejected",
+        "SG.abc123def456ghi789jkl.mnop456qrs789tuv012wxy",
+        id="sendgrid-key",
+    ),
+    pytest.param(
+        "gcp rejected AIzaSyA1234567890abcdefghijklmnopqrstuv",
+        "AIzaSyA1234567890abcdefghijklmnopqrstuv",
+        id="google-api-key",
+    ),
 ]
 
 
@@ -508,6 +548,18 @@ LEAKED_PAYLOAD_VALUES = [
     pytest.param(
         {"refs": [1, "Bearer sk-live-PAYLOAD-LEAK-9988"]}, id="secret-in-list"
     ),
+    pytest.param({"note": "value is AKIAIOSFODNN7EXAMPLE"}, id="aws-key-id"),
+    pytest.param(
+        {"note": "value is ya29.a0AfH6SMBx1234567890"}, id="google-oauth-token"
+    ),
+    pytest.param(
+        {"note": "value is SECRETTOKEN1234567890"}, id="keyword-free-opaque-run"
+    ),
+    pytest.param(
+        {"note": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.abc"},
+        id="full-jwt",
+    ),
+    pytest.param({"meta": {"aws": "AKIAIOSFODNN7EXAMPLE"}}, id="nested-aws-key-id"),
 ]
 
 
@@ -544,6 +596,68 @@ def test_record_references_are_still_accepted():
         "listing_id": 42,
         "external_id": "123e4567-e89b-12d3-a456-426614174000",
     }
+
+
+# The rules for provider prefixes are anchored to each provider's real format, so
+# they must not fire on words that merely look similar, and a 20-23 character
+# reference must stay enqueueable without a credential signal next to it.
+LEGITIMATE_PAYLOADS = [
+    pytest.param({"listing_id": 42}, id="int-id"),
+    pytest.param({"external_id": "123e4567-e89b-12d3-a456-426614174000"}, id="uuid"),
+    pytest.param(
+        {"external_id": "123E4567-E89B-12D3-A456-426614174000"}, id="uuid-upper"
+    ),
+    pytest.param({"reason": "user_requested"}, id="short-text"),
+    pytest.param({"code": "abc-123"}, id="short-code"),
+    pytest.param({"ref": "abcdefghij1234567890"}, id="20-char-reference"),
+    pytest.param({"ref": "abcdefghij12345678901"}, id="21-char-reference"),
+    pytest.param({"ref": "abcdefghij123456789012"}, id="22-char-reference"),
+    pytest.param({"ref": "abcdefghij1234567890123"}, id="23-char-reference"),
+    pytest.param({"ref": "1234567890123456789012345"}, id="25-digit-reference"),
+    pytest.param({"url": "https://example.com/x"}, id="short-url"),
+    pytest.param({"ids": [1, 2, 3]}, id="list-of-ids"),
+    pytest.param({"meta": {"source": "web"}}, id="nested-dict"),
+    pytest.param({}, id="empty"),
+    pytest.param({"done": True, "count": None}, id="bool-and-null"),
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("payload", LEGITIMATE_PAYLOADS)
+def test_legitimate_payloads_are_still_accepted(payload):
+    result = enqueue("test_noop", payload, idempotency_key="legit-payload")
+
+    assert result.created
+    assert BackgroundJob.objects.get().payload == payload
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "RuntimeError: listing listings_listings_display_name_key is missing",
+        "RuntimeError: could not find listing 1234567890123456789012345",
+        "RuntimeError: slug abc-123 not found",
+    ],
+)
+def test_identifier_heavy_error_summaries_are_not_mangled(summary):
+    """Over-redaction is the safe direction, but a summary still has to be useful.
+
+    The anchored provider rules and the lowered opaque-run threshold must not
+    turn a record reference or a slug into ``[redacted]``.
+    """
+    assert sanitize_error_summary(summary) == summary
+
+
+def test_provider_prefix_rules_require_the_real_format():
+    """``akia-...``/``ya29-...`` are not real credentials, so they are not redacted.
+
+    Anchoring to the issued format is what keeps ordinary text from being eaten;
+    the price is that an invented shape is no longer a trigger.
+    """
+    assert redact_secrets("value akia-ABCDEFGHIJKLMNOP here") == (
+        "value akia-ABCDEFGHIJKLMNOP here"
+    )
+    assert "AKIAIOSFODNN7EXAMPLE" not in redact_secrets("key AKIAIOSFODNN7EXAMPLE used")
 
 
 @pytest.mark.django_db

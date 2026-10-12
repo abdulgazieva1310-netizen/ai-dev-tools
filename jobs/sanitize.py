@@ -62,6 +62,35 @@ _ASSIGNMENT_REDACTION = re.compile(
     re.IGNORECASE,
 )
 
+# Known provider token formats, spelled the way each provider actually issues
+# them. The lengths and separators are anchored to the real format on purpose: an
+# invented ``prefix[-_]value`` convention (``akia-...``, ``ya29-...``) matches no
+# real credential at all, while the real formats are an *unseparated* fixed body
+# (``AKIA`` + 16 uppercase characters), a dot separator (``ya29.``) or a dotted
+# JWT. Anything looser would start eating ordinary words.
+_PROVIDER_TOKEN = (
+    # JWT: ``eyJ`` base64url header, then dot separated segments. A bare header
+    # is also matched, since that is all that shows up in a truncated log line.
+    r"eyJ[A-Za-z0-9_=-]{8,}\.[A-Za-z0-9_=-]{4,}(?:\.[A-Za-z0-9_=-]*)?"
+    r"|eyJ[A-Za-z0-9_=-]{16,}"
+    # AWS key ids and principal ids: a four character type prefix, *no* separator,
+    # then exactly 16 uppercase alphanumerics.
+    r"|(?:AKIA|ASIA|AIDA|AROA)[0-9A-Z]{16}(?![A-Za-z0-9])"
+    # Google: OAuth access tokens (``ya29.``) and API keys (``AIza`` + 35).
+    r"|ya29\.[A-Za-z0-9._\-]{16,}"
+    r"|AIza[0-9A-Za-z_\-]{35}"
+    # GitHub personal access tokens (fine grained) and classic tokens.
+    r"|github_pat_[A-Za-z0-9_]{20,}"
+    r"|gh[pousr]_[A-Za-z0-9]{16,}"
+    # GitLab, Slack (bot/user tokens and incoming webhooks), SendGrid.
+    r"|glpat-[A-Za-z0-9_\-]{16,}"
+    r"|xox[abopsr]-[A-Za-z0-9\-]{10,}"
+    r"|whsec-[A-Za-z0-9+/=]{16,}"
+    r"|SG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}"
+    # Stripe style keys really do use a separator.
+    r"|(?:sk|pk|rk)[-_][A-Za-z0-9_\-]{8,}"
+)
+
 _REDACTIONS = (
     _ASSIGNMENT_REDACTION,
     # ``Bearer <token>`` / ``Basic <base64>`` with no name in front of them.
@@ -69,20 +98,33 @@ _REDACTIONS = (
         r"(?i)\b(?:bearer|basic|digest|negotiate|oauth|hmac|apikey)"
         r"\s+[A-Za-z0-9._~+/=\-]{6,}"
     ),
-    # Known provider token prefixes, which are short and cannot be caught by a
-    # length heuristic on their own.
-    re.compile(
-        r"(?i)(?<![A-Za-z0-9])(?:"
-        r"github_pat_[A-Za-z0-9_]{8,}"
-        r"|(?:sk|pk|rk|whsec|ghp|gho|ghu|ghs|glpat|xox[abopsr]|akia|asia|aiza"
-        r"|ya29|eyj|sg)[-_][A-Za-z0-9_\-]{8,}"
-        r")"
-    ),
+    re.compile(r"(?<![A-Za-z0-9])" + _PROVIDER_TOKEN, re.IGNORECASE),
 )
 
-# Last resort: a long opaque run. This is a backstop, not the main defence,
-# which is why it sits behind the named patterns above.
-_OPAQUE_RUN = re.compile(r"[A-Za-z0-9+/=_\-]{24,}")
+# An opaque run of at least this length is treated as a credential on its own
+# evidence: no provider is that generous with a record reference. Below this
+# length a run is only redacted when a second signal agrees, because 20-23
+# characters of mixed alphanumerics is indistinguishable from a real id.
+OPAQUE_RUN_MIN_LENGTH = 24
+OPAQUE_RUN_CONTEXT_MIN_LENGTH = 20
+
+# How far either side of a short run counts as "next to credential-ish context".
+_CREDENTIAL_CONTEXT_WINDOW = 40
+
+# A credential word *inside* the run itself, e.g. ``SECRETTOKEN1234567890``.
+# This is the second signal that catches a short secret that carries no hint in
+# the surrounding text.
+_CREDENTIAL_WORD_IN_RUN = re.compile(
+    r"(?i)secret|token|passw|apikey|api[_-]key|credential|bearer|auth[_-]?token"
+)
+
+# Words around a short run that make it a credential rather than an identifier.
+_CREDENTIAL_CONTEXT = re.compile(
+    r"(?i)auth|credential|token|session|unauthoriz|forbidden|denied|failed"
+    r"|login|password|secret|signature|api[_\- ]?key"
+)
+
+_OPAQUE_RUN = re.compile(rf"[A-Za-z0-9+/=_\-]{{{OPAQUE_RUN_CONTEXT_MIN_LENGTH},}}")
 
 _SENSITIVE_NAME_RE = re.compile(_SENSITIVE_NAME, re.IGNORECASE)
 
@@ -111,18 +153,42 @@ def _fail(message):
     raise ValueError(f"Invalid job payload: {message}")
 
 
-def _redact_opaque(match, *, strict: bool) -> str:
-    """Redact a long opaque run.
+def _redact_opaque(match, *, strict: bool, text: str) -> str:
+    """Redact an opaque run, asking for a second signal below the long threshold.
 
-    ``strict`` (payloads) redacts any long run, because a payload value should
-    be a record reference. An error summary keeps letter-only runs such as
-    ``listings_listings_display_name_key``, which are identifiers and not
-    credentials, but still redacts anything that mixes letters and digits.
+    ``strict`` (payloads) redacts anything that is not a record reference, so a
+    payload value should always be an id. An error summary keeps letter-only runs
+    such as ``listings_listings_display_name_key``, which are identifiers rather
+    than credentials, but still redacts anything that mixes letters and digits.
+
+    A run shorter than :data:`OPAQUE_RUN_MIN_LENGTH` is only redacted when it also
+    carries a credential word of its own or sits next to credential-ish context,
+    so ordinary 20-23 character record references stay readable.
     """
     span = match.group(0)
-    if not strict and not any(character.isdigit() for character in span):
+    if _looks_like_record_reference(span):
         return span
-    return REDACTED
+
+    has_digit = any(character.isdigit() for character in span)
+
+    if len(span) >= OPAQUE_RUN_MIN_LENGTH:
+        if strict or has_digit:
+            return REDACTED
+        return span
+
+    if not has_digit and not strict:
+        return span
+    if _CREDENTIAL_WORD_IN_RUN.search(span):
+        return REDACTED
+    start = match.start()
+    window = text[
+        max(0, start - _CREDENTIAL_CONTEXT_WINDOW) : start
+        + len(span)
+        + _CREDENTIAL_CONTEXT_WINDOW
+    ]
+    if _CREDENTIAL_CONTEXT.search(window):
+        return REDACTED
+    return span
 
 
 def redact_secrets(text: str, *, strict: bool = False) -> str:
@@ -130,7 +196,9 @@ def redact_secrets(text: str, *, strict: bool = False) -> str:
     text = _ASSIGNMENT_REDACTION.sub(_redact_assignment, text)
     for pattern in _REDACTIONS[1:]:
         text = pattern.sub(REDACTED, text)
-    text = _OPAQUE_RUN.sub(lambda match: _redact_opaque(match, strict=strict), text)
+    text = _OPAQUE_RUN.sub(
+        lambda match: _redact_opaque(match, strict=strict, text=text), text
+    )
     return text
 
 

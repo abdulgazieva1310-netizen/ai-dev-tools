@@ -114,9 +114,9 @@ so a caller bug is loud instead of silent.
   `authorization`, `api_key`, `cookie`, `session_id`, …) are rejected outright,
   and `bytes`/media are never accepted;
 - **values** are inspected too: a string value that looks like a credential
-  (`Bearer sk-live-…`, `client_secret: …`, `sk-live-…`, a long opaque run) is
-  rejected. Plain record references — numbers, UUIDs, short identifiers — stay
-  enqueueable;
+  (`Bearer sk-live-…`, `client_secret: …`, `AKIA…`, `ya29.…`, a long opaque run)
+  is rejected. Plain record references — numbers, UUIDs, short identifiers, and
+  alphanumeric references of fewer than 24 characters — stay enqueueable;
 - error summaries are redacted, whitespace-collapsed and capped at 200
   characters, in the database, in the worker log and in the admin.
 
@@ -128,11 +128,38 @@ Redaction always consumes the value with its name, so nothing is orphaned:
 | `client_secret: abc123 rejected` | `client_secret: [redacted]` |
 | `Set-Cookie: sessionid=abc123def` | `Set-Cookie: [redacted]` |
 | `password: 's3cret-value'` | `password: [redacted]` |
+| `auth failed with AKIAIOSFODNN7EXAMPLE` | `auth failed with [redacted]` |
+| `auth failed with ya29.a0AfH6SMBx1234567890` | `auth failed with [redacted]` |
+
+### What the credential rules recognise
+
+- **Named rules.** A `name: value` / `name=value` pair whose name is credential
+  bearing, a bare `Bearer`/`Basic` value, and the real token formats of the
+  providers we use: AWS key ids (`AKIA`/`ASIA`/`AIDA`/`AROA` followed by exactly
+  16 uppercase characters, *no* separator), Google OAuth (`ya29.`) and Google
+  API keys (`AIza…`), JWTs (`eyJ` + base64url segments), GitHub
+  (`github_pat_…`, `ghp_…`), GitLab (`glpat-`), Slack (`xox[baprs]-`,
+  `whsec-`), SendGrid (`SG.….…`) and Stripe (`sk-`/`pk-`/`rk_`). Lengths and
+  separators are anchored to the issued format, because a looser pattern such as
+  `akia-anything` matches no real credential while still eating ordinary words.
+- **Opaque runs.** A run of 24 or more characters is redacted on its own
+  evidence (letter-only runs such as `listings_listings_display_name_key` are
+  kept in summaries, since they are identifiers). A run of 20-23 characters is
+  too short to condemn on its own, so it also needs a second signal: a
+  credential word inside it (`SECRETTOKEN1234567890`) or credential-ish context
+  near it (`auth`, `token`, `credential`, `session`, `failed`, `unauthorized`,
+  …). That is what catches a short secret without rejecting ordinary record
+  references. In payloads (`strict`) every long run is refused anyway.
 
 The name is kept so the summary still says *what* was rejected; only the value
 disappears. Redaction is idempotent, because the worker sanitizes a summary
 before logging it and `record_failure()` sanitizes it again. Over-redaction is
-the safe direction: a summary may lose words, it must never keep a credential.
+the safe direction — a payload carrying a 24-character non-UUID string is
+refused, and a summary may lose words — but ordinary ids, UUIDs, short codes and
+short references must still pass, and the tests lock both halves of that in.
+No pattern is a proof: an unlabelled secret shorter than 20 characters with no
+credential word and no credential context is not detectable, so do not put one in
+a job summary or payload.
 
 ## Configuration
 
