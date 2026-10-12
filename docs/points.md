@@ -24,7 +24,8 @@ reserved points to the recipient's `available`; a release moves them back.
   existing row, and the queryset `.update()` / `.delete()` helpers, raise
   `ImmutableLedgerError`.
 - `PointAccount` balances cannot be written directly: `PointAccount.objects.filter(...).update(...)`
-  raises `ProtectedBalanceError`. Services write them with
+  and `save()` on an instance both raise `ProtectedBalanceError`. Only the services
+  (through the internal `balance_write()` context) write them with
   `save(update_fields=[...])` **after** locking the row.
 - Both models enforce this with database `CheckConstraint`s as well (amounts are
   non-zero, cached totals are non-negative, reservation amount is positive).

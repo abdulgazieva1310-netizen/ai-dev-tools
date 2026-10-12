@@ -83,6 +83,30 @@ def issue(account, amount, *, key=None, actor=None, bucket=BUCKET, reference="te
     )
 
 
+def run_threads(worker, count, *, timeout=30):
+    """Run ``worker(index)`` in ``count`` threads released by one barrier."""
+
+    start = threading.Barrier(count)
+    errors = []
+
+    def runner(index):
+        connection.close()
+        try:
+            start.wait(timeout=10)
+            worker(index)
+        except Exception as error:  # pragma: no cover - surfaced by the assert
+            errors.append(error)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=runner, args=(index,)) for index in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=timeout)
+    return errors
+
+
 # --- ensure_account -----------------------------------------------------------
 
 
@@ -441,6 +465,44 @@ def test_adjust_refuses_to_drive_available_negative(account):
         )
 
 
+def test_adjust_idempotency_replays_and_rejects_rebinding(account):
+    first = services.adjust(
+        account,
+        5,
+        actor=None,
+        source_reference="adj",
+        reason="fix",
+        idempotency_key="adjust-1",
+    )
+    second = services.adjust(
+        account,
+        5,
+        actor=None,
+        source_reference="adj",
+        reason="fix",
+        idempotency_key="adjust-1",
+    )
+    assert first.created
+    assert not second.created
+    assert first.transaction.pk == second.transaction.pk
+    assert PointTransaction.objects.count() == 1
+    account.refresh_from_db()
+    assert account.available == 5
+
+    with pytest.raises(IdempotencyConflictError):
+        services.adjust(
+            account,
+            7,
+            actor=None,
+            source_reference="adj",
+            reason="fix",
+            idempotency_key="adjust-1",
+        )
+    account.refresh_from_db()
+    assert account.available == 5
+    assert PointTransaction.objects.count() == 1
+
+
 # --- reconciliation -----------------------------------------------------------
 
 
@@ -454,6 +516,7 @@ def corrupt_cache(account, *, available, reserved):
 
 
 def test_reconcile_repairs_a_divergent_cache(account):
+    require_postgres()
     issue(account, 10, key="fund")
     corrupt_cache(account, available=999, reserved=42)
     result = services.reconcile_account(account)
@@ -470,6 +533,7 @@ def test_reconcile_repairs_a_divergent_cache(account):
 
 
 def test_reconcile_leaves_a_healthy_account_untouched(account):
+    require_postgres()
     issue(account, 10, key="fund")
     result = services.reconcile_account(account)
     assert not result.repaired
@@ -517,6 +581,7 @@ def test_cached_totals_always_match_the_ledger(account, other_user):
 
 
 def test_ledger_entries_are_append_only(account):
+    require_postgres()
     transaction_row = issue(account, 5, key="append").transaction
     with pytest.raises(ImmutableLedgerError):
         transaction_row.save()
@@ -528,10 +593,21 @@ def test_ledger_entries_are_append_only(account):
 
 
 def test_cached_balances_cannot_be_updated_directly(account):
+    require_postgres()
     with pytest.raises(ProtectedBalanceError):
         PointAccount.objects.filter(pk=account.pk).update(available=1)
     with pytest.raises(ProtectedBalanceError):
         PointAccount.objects.filter(pk=account.pk).update(reserved=1)
+
+
+def test_cached_balances_cannot_be_saved_directly(account):
+    account.available = 999
+    with pytest.raises(ProtectedBalanceError):
+        account.save()
+    account.refresh_from_db()
+    assert account.available == 0
+    with pytest.raises(ProtectedBalanceError):
+        account.save()
 
 
 def test_points_package_has_no_ledger_update_or_delete_path():
@@ -785,3 +861,122 @@ def test_points_are_conserved_across_transfer_capture_and_release(user, other_us
     second.refresh_from_db()
     assert first.available + first.reserved + second.available + second.reserved == 100
     assert total == 100
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_ensure_account_creates_one(user):
+    require_postgres()
+
+    def worker(_index):
+        services.ensure_account(user)
+
+    errors = run_threads(worker, 4)
+    assert not errors, errors
+    assert PointAccount.objects.filter(user=user).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_transfer_same_key_writes_one_pair(user, other_user):
+    require_postgres()
+    source = services.ensure_account(user)
+    destination = services.ensure_account(other_user)
+    issue(source, 100, key="fund")
+
+    def worker(_index):
+        payer = PointAccount.objects.get(pk=source.pk)
+        payee = PointAccount.objects.get(pk=destination.pk)
+        services.transfer(
+            payer,
+            payee,
+            10,
+            actor=None,
+            source_reference="race",
+            bucket=BUCKET,
+            idempotency_key="race-transfer",
+        )
+
+    errors = run_threads(worker, 5)
+    assert not errors, errors
+    assert PointTransaction.objects.filter(idempotency_key="race-transfer").count() == 2
+    source.refresh_from_db()
+    destination.refresh_from_db()
+    assert (source.available, destination.available) == (90, 10)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_reserve_same_key_creates_one_reservation(user):
+    require_postgres()
+    account = services.ensure_account(user)
+    issue(account, 100, key="fund")
+
+    def worker(_index):
+        local = PointAccount.objects.get(pk=account.pk)
+        services.reserve(
+            local,
+            20,
+            actor=None,
+            source_reference="race",
+            bucket=PointTransaction.Bucket.BOOKING,
+            idempotency_key="race-reserve",
+        )
+
+    errors = run_threads(worker, 5)
+    assert not errors, errors
+    assert PointReservation.objects.filter(ledger_key="race-reserve").count() == 1
+    assert PointTransaction.objects.filter(idempotency_key="race-reserve").count() == 1
+    account.refresh_from_db()
+    assert (account.available, account.reserved) == (80, 20)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_capture_same_reservation_credits_once(user, other_user):
+    require_postgres()
+    learner = services.ensure_account(user)
+    services.ensure_account(other_user)
+    issue(learner, 100, key="fund")
+    reserved = services.reserve(
+        learner,
+        20,
+        actor=None,
+        source_reference="race",
+        bucket=PointTransaction.Bucket.BOOKING,
+        recipient=other_user,
+    )
+
+    def worker(_index):
+        services.capture(reserved.reservation, actor=other_user)
+
+    errors = run_threads(worker, 5)
+    assert not errors, errors
+    teacher = services.ensure_account(other_user)
+    assert teacher.available == 20
+    assert (
+        PointTransaction.objects.filter(type=PointTransaction.Type.CAPTURE).count() == 1
+    )
+    learner.refresh_from_db()
+    assert (learner.available, learner.reserved) == (80, 0)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_release_same_reservation_restores_once(user):
+    require_postgres()
+    learner = services.ensure_account(user)
+    issue(learner, 100, key="fund")
+    reserved = services.reserve(
+        learner,
+        20,
+        actor=None,
+        source_reference="race",
+        bucket=PointTransaction.Bucket.BOOKING,
+    )
+
+    def worker(_index):
+        services.release(reserved.reservation, actor=None)
+
+    errors = run_threads(worker, 5)
+    assert not errors, errors
+    learner.refresh_from_db()
+    assert (learner.available, learner.reserved) == (100, 0)
+    assert (
+        PointTransaction.objects.filter(type=PointTransaction.Type.RELEASE).count() == 1
+    )

@@ -28,7 +28,12 @@ from points.exceptions import (
     IdempotencyConflictError,
     InsufficientPointsError,
 )
-from points.models import PointAccount, PointReservation, PointTransaction
+from points.models import (
+    PointAccount,
+    PointReservation,
+    PointTransaction,
+    balance_write,
+)
 
 
 class GrantResult(NamedTuple):
@@ -131,6 +136,17 @@ def _create_transaction(**kwargs):
     return PointTransaction.objects.create(**kwargs)
 
 
+def _persist_totals(account):
+    """Write a locked account's cached totals.
+
+    ``PointAccount.save()`` refuses to write ``available``/``reserved`` unless
+    ``balance_write()`` is open, so the services are the only writers.
+    """
+
+    with balance_write():
+        account.save(update_fields=["available", "reserved", "updated_at"])
+
+
 def _existing_transaction(account, key):
     if not key:
         return None
@@ -210,7 +226,7 @@ def issue_points(
         return GrantResult(transaction=existing, account=locked, created=False)
 
     locked.available += amount
-    locked.save(update_fields=["available", "reserved", "updated_at"])
+    _persist_totals(locked)
     entry = _create_transaction(
         account=locked,
         amount=amount,
@@ -273,8 +289,8 @@ def transfer(
 
     payer.available -= amount
     recipient.available += amount
-    payer.save(update_fields=["available", "reserved", "updated_at"])
-    recipient.save(update_fields=["available", "reserved", "updated_at"])
+    _persist_totals(payer)
+    _persist_totals(recipient)
     common = {
         "bucket": bucket,
         "type": PointTransaction.Type.TRANSFER,
@@ -338,7 +354,7 @@ def reserve(
 
     locked.available -= amount
     locked.reserved += amount
-    locked.save(update_fields=["available", "reserved", "updated_at"])
+    _persist_totals(locked)
     entry = _create_transaction(
         account=locked,
         amount=-amount,
@@ -404,8 +420,8 @@ def capture(reservation, *, actor, idempotency_key=None, recipient=None, reason=
 
     payer.reserved -= reservation.amount
     recipient_account.available += reservation.amount
-    payer.save(update_fields=["available", "reserved", "updated_at"])
-    recipient_account.save(update_fields=["available", "reserved", "updated_at"])
+    _persist_totals(payer)
+    _persist_totals(recipient_account)
     entry = _create_transaction(
         account=recipient_account,
         amount=reservation.amount,
@@ -450,7 +466,7 @@ def release(reservation, *, actor, idempotency_key=None, reason=""):
 
     locked.available += reservation.amount
     locked.reserved -= reservation.amount
-    locked.save(update_fields=["available", "reserved", "updated_at"])
+    _persist_totals(locked)
     entry = _create_transaction(
         account=locked,
         amount=reservation.amount,
@@ -506,7 +522,7 @@ def adjust(
         )
 
     locked.available += amount
-    locked.save(update_fields=["available", "reserved", "updated_at"])
+    _persist_totals(locked)
     entry = _create_transaction(
         account=locked,
         amount=amount,
@@ -545,7 +561,7 @@ def reconcile_account(account):
     if repaired:
         locked.available = ledger_available
         locked.reserved = ledger_reserved
-        locked.save(update_fields=["available", "reserved", "updated_at"])
+        _persist_totals(locked)
     return ReconciliationResult(
         before_available=before_available,
         before_reserved=before_reserved,

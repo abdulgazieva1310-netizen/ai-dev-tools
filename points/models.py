@@ -6,18 +6,42 @@ the ledger:
 * ``PointTransaction`` rows are append-only. The manager forbids ``update()``
   and ``delete()``, and ``save()`` refuses to touch a row that already exists.
 * Cached ``PointAccount.available``/``reserved`` totals are written only by
-  ``points.services``. The manager forbids ``update()``; the services change the
-  totals with ``save(update_fields=[...])`` after locking the row.
+  ``points.services``. The manager forbids ``update()``, and ``save()`` refuses
+  to write the totals unless the caller opened :func:`balance_write`; the services
+  change the totals with ``save(update_fields=[...])`` after locking the row.
 
 Every balance the product shows is a cache of ``PointTransaction.amount`` (for
 ``available``) and of the still-``reserved`` ``PointReservation`` rows (for
 ``reserved``); ``points.services.reconcile_account`` can rebuild them.
 """
 
+import contextlib
+import contextvars
+
 from django.conf import settings
 from django.db import models
 
 from points.exceptions import ImmutableLedgerError, ProtectedBalanceError
+
+#: Whether the current call stack is allowed to write the cached totals.
+_balance_write_permitted = contextvars.ContextVar(
+    "points_balance_write_permitted", default=False
+)
+
+
+@contextlib.contextmanager
+def balance_write():
+    """Permit ``PointAccount.save()`` to write ``available``/``reserved``.
+
+    Only ``points.services`` opens this context; every other code path that tries
+    to persist the totals raises :class:`ProtectedBalanceError`.
+    """
+
+    token = _balance_write_permitted.set(True)
+    try:
+        yield
+    finally:
+        _balance_write_permitted.reset(token)
 
 
 class PointAccountQuerySet(models.QuerySet):
@@ -33,6 +57,7 @@ class PointAccountManager(models.Manager.from_queryset(PointAccountQuerySet)):
 
 
 class PointAccount(models.Model):
+    _PROTECTED_FIELDS = frozenset({"available", "reserved"})
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -55,6 +80,18 @@ class PointAccount(models.Model):
                 name="point_account_reserved_nonnegative",
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding and not _balance_write_permitted.get():
+            update_fields = kwargs.get("update_fields")
+            if update_fields is None or self._PROTECTED_FIELDS.intersection(
+                update_fields
+            ):
+                raise ProtectedBalanceError(
+                    "PointAccount totals are managed by points.services; call a "
+                    "service function instead of saving the cache directly."
+                )
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"PointAccount<user={self.user_id}>"
