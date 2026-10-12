@@ -10,6 +10,7 @@ import importlib
 import os
 import sys
 import threading
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 import jwt
@@ -18,7 +19,7 @@ from django.conf import settings
 from django.core import signing
 from django.db import connection
 from django.db.models import Sum
-from django.test import override_settings
+from django.test import Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -246,6 +247,61 @@ def test_email_verification_succeeds_with_zero_starter_points(client):
     assert not PointAccount.objects.filter(user=user).exists()
 
 
+@pytest.mark.django_db
+@override_settings(STARTER_POINTS=-5)
+def test_negative_starter_points_writes_nothing():
+    user = verified_user()
+
+    assert grant_starter_points(user) is None
+    assert not PointAccount.objects.filter(user=user).exists()
+    assert PointTransaction.objects.count() == 0
+
+
+@pytest.mark.django_db
+@override_settings(STARTER_POINTS=-5)
+def test_negative_starter_points_keeps_existing_balance():
+    user = verified_user()
+    account = services.ensure_account(user)
+    services.issue_points(
+        account,
+        7,
+        actor=None,
+        source_reference="seed",
+        bucket="general",
+        idempotency_key="seed",
+    )
+
+    assert grant_starter_points(user) is None
+
+    account.refresh_from_db()
+    assert account.available == 7
+
+
+@pytest.mark.django_db
+def test_failed_grant_rolls_back_email_verification_and_link_can_be_retried(client):
+    user = User.objects.create_user("person@example.com", "correct-horse")
+    token = email_token(user)
+    url = reverse("verify_email", kwargs={"token": token})
+    client.raise_request_exception = False
+
+    with patch("points.services._create_transaction", side_effect=RuntimeError("boom")):
+        first = client.get(url)
+
+    assert first.status_code == 500
+    user.refresh_from_db()
+    assert user.email_verified_at is None
+    assert not PointAccount.objects.filter(user=user).exists()
+    assert PointTransaction.objects.count() == 0
+
+    second = client.get(url)
+
+    assert second.status_code == 200
+    user.refresh_from_db()
+    account = PointAccount.objects.get(user=user)
+    assert user.email_verified_at is not None
+    assert account.available == settings.STARTER_POINTS
+
+
 # --- pre-existing account and idempotency -------------------------------------
 
 
@@ -288,6 +344,28 @@ def test_repeated_grant_returns_created_false():
 
 
 @pytest.mark.django_db
+def test_repeat_grant_after_amount_change_returns_created_false():
+    user = verified_user()
+
+    with override_settings(STARTER_POINTS=20):
+        first = grant_starter_points(user)
+    assert first.created
+    assert first.transaction.amount == 20
+
+    with override_settings(STARTER_POINTS=30):
+        second = grant_starter_points(user)
+
+    account = PointAccount.objects.get(user=user)
+    assert second.created is False
+    assert second.transaction.pk == first.transaction.pk
+    assert (
+        PointTransaction.objects.filter(idempotency_key=f"starter:{user.pk}").count()
+        == 1
+    )
+    assert account.available == 20
+
+
+@pytest.mark.django_db
 def test_replayed_email_token_grants_once(client):
     user = User.objects.create_user("person@example.com", "correct-horse")
     token = email_token(user)
@@ -319,6 +397,28 @@ def test_repeated_google_callback_grants_once(client, monkeypatch):
     assert account.available == settings.STARTER_POINTS
 
 
+@pytest.mark.django_db
+def test_repeated_google_callback_with_changed_amount_signs_in(client, monkeypatch):
+    with override_settings(STARTER_POINTS=20):
+        first = google_sign_in(client, monkeypatch)
+    assert first.status_code == 302
+
+    user = User.objects.get(email="person@example.com")
+    assert PointAccount.objects.get(user=user).available == 20
+
+    with override_settings(STARTER_POINTS=30):
+        second = google_sign_in(client, monkeypatch)
+
+    user.refresh_from_db()
+    account = PointAccount.objects.get(user=user)
+    assert second.status_code == 302
+    assert (
+        PointTransaction.objects.filter(idempotency_key=f"starter:{user.pk}").count()
+        == 1
+    )
+    assert account.available == 20
+
+
 # --- ledger shape and agreement -----------------------------------------------
 
 
@@ -346,6 +446,26 @@ def test_balance_reconciles_with_the_ledger():
     assert account.available == settings.STARTER_POINTS
     assert ledger_total == account.available
     assert services.reconcile_account(account).repaired is False
+
+
+@pytest.mark.django_db
+def test_only_intended_account_and_ledger_rows_change_after_repeat():
+    target = verified_user("target@example.com")
+    bystander = verified_user("bystander@example.com")
+
+    with override_settings(STARTER_POINTS=20):
+        grant_starter_points(target)
+        grant_starter_points(target)
+
+    assert PointAccount.objects.count() == 1
+    assert PointTransaction.objects.count() == 1
+    entry = PointTransaction.objects.get()
+    account = PointAccount.objects.get(user=target)
+    assert entry.idempotency_key == f"starter:{target.pk}"
+    assert entry.account == account
+    assert account.available == 20
+    assert account.reserved == 0
+    assert not PointAccount.objects.filter(user=bystander).exists()
 
 
 # --- PostgreSQL-only: concurrency ---------------------------------------------
@@ -385,3 +505,42 @@ def test_concurrent_grants_produce_exactly_one_entry():
     account = PointAccount.objects.get(user=user)
     assert account.available == settings.STARTER_POINTS
     assert sum(1 for result in results if result and result.created) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_email_callbacks_produce_exactly_one_entry():
+    require_postgres()
+    user = User.objects.create_user("race2@example.com", "correct-horse")
+    token = email_token(user)
+    url = reverse("verify_email", kwargs={"token": token})
+
+    start = threading.Barrier(6)
+    statuses = [None] * 6
+    errors = []
+
+    def worker(index):
+        connection.close()
+        try:
+            start.wait(timeout=10)
+            statuses[index] = Client().get(url).status_code
+        except Exception as error:  # pragma: no cover - surfaced by the assert
+            errors.append(error)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=worker, args=(index,)) for index in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert not errors, errors
+    assert all(status in (200, 400) for status in statuses), statuses
+    assert statuses.count(200) == 1, statuses
+    assert (
+        PointTransaction.objects.filter(idempotency_key=f"starter:{user.pk}").count()
+        == 1
+    )
+    account = PointAccount.objects.get(user=user)
+    assert account.available == settings.STARTER_POINTS
+    assert account.reserved == 0
