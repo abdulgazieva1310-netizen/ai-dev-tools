@@ -7,7 +7,9 @@ DEBUG = True
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver"]
 
 ROOT_URLCONF = "config.urls"
+STATIC_URL = "static/"
 INSTALLED_APPS = [
+    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -15,6 +17,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "accounts",
     "profiles",
+    "listings",
     "mozilla_django_oidc",
 ]
 MIDDLEWARE = [

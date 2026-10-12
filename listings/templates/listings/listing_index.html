@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Live lessons</title></head>
+  <body>
+    <main>
+      <h1>Live lessons</h1>
+      {% if request.user.is_authenticated and request.user.is_active %}
+        <p><a href="{% url 'listing_create' %}">Create a live lesson</a></p>
+      {% endif %}
+      {% if listings %}
+        <ul>
+          {% for listing in listings %}
+            <li>
+              <a href="{% url 'listing_detail' listing.pk %}">{{ listing.title }}</a>
+              <span>{{ listing.skill.name }}</span>
+              <span>{{ listing.category.name }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>No published lessons are available.</p>
+      {% endif %}
+    </main>
+  </body>
+</html>

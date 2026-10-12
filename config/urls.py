@@ -1,3 +1,4 @@
+from django.contrib import admin
 from django.http import HttpResponse
 from django.urls import include, path
 
@@ -7,7 +8,9 @@ def home(request):
 
 
 urlpatterns = [
+    path("admin/", admin.site.urls),
     path("", include("accounts.urls")),
     path("", include("profiles.urls")),
+    path("", include("listings.urls")),
     path("", home, name="home"),
 ]

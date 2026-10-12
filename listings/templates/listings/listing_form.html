@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>{{ heading }}</title></head>
+  <body>
+    <main>
+      <h1>{{ heading }}</h1>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}
+          <div>
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+            {{ field.errors }}
+          </div>
+        {% endfor %}
+        <button name="action" value="save" type="submit">Save draft</button>
+        <button name="action" value="submit" type="submit">Submit for review</button>
+      </form>
+      {% if listing %}
+        <p><a href="{% url 'listing_detail' listing.pk %}">Back to listing</a></p>
+      {% else %}
+        <p><a href="{% url 'listing_index' %}">Back to live lessons</a></p>
+      {% endif %}
+    </main>
+  </body>
+</html>

@@ -81,3 +81,12 @@ can edit privacy, biography, language labels, projects, certificates, and teachi
 or learning skills from the profile page. Profile URLs use opaque numeric IDs at
 `/profiles/<id>/`; server-side visibility checks return 404 when a viewer lacks
 access. Apply the profile schema with `uv run python manage.py migrate`.
+
+## Skill categories and live lessons
+
+Staff can manage seeded skill categories in Django Admin and assign shared skills
+to them there. Profile owners can create shared skills without a category. Active,
+verified members can create lesson drafts at `/lessons/` and submit complete lessons
+for staff review. Staff publish or reject pending lessons in Django Admin. Only
+published lessons appear to learners, and profile visibility rules also apply to
+lesson details. Apply the listings schema with `uv run python manage.py migrate`.
