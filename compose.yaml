@@ -6,6 +6,7 @@ services:
       - .env
     environment:
       RUN_POSTGRES_SEARCH_TESTS: "1"
+      RUN_POSTGRES_JOB_TESTS: "1"
     ports:
       - "8000:8000"
     depends_on:
@@ -17,6 +18,16 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  worker:
+    build: .
+    command: python manage.py run_jobs
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
   db:
     image: postgres:17-alpine
