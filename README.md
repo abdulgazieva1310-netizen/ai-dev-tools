@@ -52,3 +52,13 @@ docker compose down
 ```
 
 The `.env` file is local and ignored by Git. Use `.env.example` as the starting point; its values are for local development only.
+
+## Account identity
+
+`accounts.User` is the project's custom user model. It uses a unique, lowercased and trimmed email address for login, Django password hashing,
+an optional `email_verified_at` timestamp, and one of four states: `active`, `suspended`, `deletion_pending`, or `deleted`. Only `active`
+accounts can authenticate.
+
+The user model is configured as `AUTH_USER_MODEL` and defined in `accounts/0001_initial.py`. Keep it in the account app's initial migration
+before creating initial migrations for other project apps; Django apps that reference users must depend on the swappable user model. For a
+fresh local database, apply migrations with `uv run python manage.py migrate` (or `docker compose exec web python manage.py migrate`).

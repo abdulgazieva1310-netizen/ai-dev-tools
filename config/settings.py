@@ -7,9 +7,14 @@ DEBUG = True
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver"]
 
 ROOT_URLCONF = "config.urls"
-INSTALLED_APPS = []
+INSTALLED_APPS = [
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "accounts",
+]
 MIDDLEWARE = []
 TEMPLATES = []
+AUTH_USER_MODEL = "accounts.User"
 
 if os.environ.get("DB_HOST"):
     DATABASES = {
@@ -21,4 +26,8 @@ if os.environ.get("DB_HOST"):
             "HOST": os.environ["DB_HOST"],
             "PORT": os.environ.get("DB_PORT", "5432"),
         }
+    }
+else:
+    DATABASES = {
+        "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": "db.sqlite3"}
     }
