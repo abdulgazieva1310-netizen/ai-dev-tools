@@ -101,6 +101,31 @@ values. Insufficient `available` raises `InsufficientPointsError`, which leaves
 no ledger entry, no reservation and no cache change because the whole atomic
 block rolls back.
 
+## Starter grant
+
+When an account becomes verified, `accounts.starter_points.grant_starter_points(user)`
+credits it `settings.STARTER_POINTS` exactly once. It runs inside one
+`transaction.atomic()`, re-reads the user, and grants only when
+`email_verified_at` is set and `state == active`. The grant calls
+`ensure_account()` and then `issue_points()` with `actor=None`,
+`bucket="starter"`, `source_reference=f"user:{pk}"` and
+`idempotency_key=f"starter:{pk}"`, so a replayed or concurrent verification
+yields a single `starter` entry.
+
+`accounts.views.verify_email` and the verified Google sign-in path call the
+service inside their existing transaction: a failed grant rolls the verification
+back so the link can be retried. When `STARTER_POINTS` is `0` or negative the
+service writes nothing and verification still succeeds.
+
+### Configuration
+
+| Setting | Environment variable | Default |
+| --- | --- | --- |
+| `STARTER_POINTS` | `STARTER_POINTS` | `20` |
+
+The default lives only in `config/settings.py`; the grant reads the value at
+grant time, so changing the setting takes effect on the next verification.
+
 ## Idempotency
 
 Pass `idempotency_key` to make a call safe to retry. The ledger stores the

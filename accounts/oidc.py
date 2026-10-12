@@ -14,6 +14,7 @@ from mozilla_django_oidc.views import (
 )
 
 from accounts.models import ExternalIdentity
+from accounts.starter_points import grant_starter_points
 
 
 def callback_url(request):
@@ -115,7 +116,10 @@ class GoogleOIDCBackend(OIDCAuthenticationBackend):
             if identity:
                 if link_user_id and identity.user_id != link_user_id:
                     return None
-                return identity.user if identity.user.is_active else None
+                if not identity.user.is_active:
+                    return None
+                grant_starter_points(identity.user)
+                return identity.user
 
             if link_user_id:
                 user = User.objects.filter(
@@ -146,6 +150,7 @@ class GoogleOIDCBackend(OIDCAuthenticationBackend):
                 )
             except IntegrityError:
                 raise SuspiciousOperation("External identity is already linked")
+            grant_starter_points(user)
             return user
 
     def get_token(self, payload):

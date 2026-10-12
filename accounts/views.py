@@ -1,6 +1,7 @@
 from functools import wraps
 
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
 from django.utils import timezone
@@ -9,6 +10,7 @@ from django.views.generic import FormView
 
 from accounts.email_verification import send_verification_email, verify_email_token
 from accounts.forms import RegistrationForm, VerificationResendForm
+from accounts.starter_points import grant_starter_points
 
 
 class RegistrationView(FormView):
@@ -33,10 +35,15 @@ class RegistrationView(FormView):
 @require_GET
 def verify_email(request, token):
     user = verify_email_token(token)
-    if user is None or not user.__class__.objects.filter(
-        pk=user.pk, email_verified_at__isnull=True
-    ).update(email_verified_at=timezone.now()):
+    if user is None:
         return render(request, "accounts/verification_invalid.html", status=400)
+    with transaction.atomic():
+        verified = user.__class__.objects.filter(
+            pk=user.pk, email_verified_at__isnull=True
+        ).update(email_verified_at=timezone.now())
+        if not verified:
+            return render(request, "accounts/verification_invalid.html", status=400)
+        grant_starter_points(user)
     return render(request, "accounts/verification_complete.html")
 
 

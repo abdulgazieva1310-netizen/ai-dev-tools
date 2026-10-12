@@ -78,6 +78,9 @@ LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "login"
 
+# Starter points (see docs/points.md).
+STARTER_POINTS = int(os.environ.get("STARTER_POINTS", "20"))
+
 # Background jobs (see docs/jobs.md).
 BACKGROUND_JOB_MAX_ATTEMPTS = int(os.environ.get("BACKGROUND_JOB_MAX_ATTEMPTS", "5"))
 BACKGROUND_JOB_LEASE_SECONDS = int(os.environ.get("BACKGROUND_JOB_LEASE_SECONDS", "60"))
