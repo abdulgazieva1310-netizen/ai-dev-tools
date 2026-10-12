@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>SkillSwap</title></head>
+  <body>
+    <main>
+      <h1>SkillSwap</h1>
+      <section aria-labelledby="recommendations-heading">
+        <h2 id="recommendations-heading">Recommended for you</h2>
+        {% if recommendations %}
+          <ul>
+            {% for listing in recommendations %}
+              <li>
+                <a href="{% url 'listing_detail' listing.pk %}">{{ listing.title }}</a>
+                {% if listing.skill %}<span>{{ listing.skill.name }}</span>{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>No recommendations yet.</p>
+        {% endif %}
+      </section>
+    </main>
+  </body>
+</html>

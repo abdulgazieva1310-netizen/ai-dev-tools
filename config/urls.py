@@ -1,10 +1,13 @@
 from django.contrib import admin
-from django.http import HttpResponse
+from django.shortcuts import render
 from django.urls import include, path
+
+from listings.recommendations import recommend_listings
 
 
 def home(request):
-    return HttpResponse("<html><body><h1>SkillSwap</h1></body></html>")
+    recommendations = recommend_listings(request.user, [], limit=5)
+    return render(request, "home.html", {"recommendations": recommendations})
 
 
 urlpatterns = [
