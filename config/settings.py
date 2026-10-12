@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     "accounts",
     "profiles",
     "listings",
+    "jobs",
     "mozilla_django_oidc",
 ]
 MIDDLEWARE = [
