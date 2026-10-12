@@ -32,7 +32,7 @@ Django web application ───────── PostgreSQL
       └─ booking reminders and expiry checks
 ```
 
-The browser talks to Django. Django owns authentication, authorization, business rules, and integration with OpenAI. PostgreSQL is the source of truth for product data and queued job state. There is no Redis broker and no persistent media object store. Recordings are held only in temporary processing storage and deleted after processing, including on failure and timeout paths.
+The browser talks to Django. Django owns authentication, authorization, business rules, and integration with OpenAI. PostgreSQL is the source of truth for product data and queued job state. There is no Redis broker and no persistent media object store. Recordings are held only in temporary processing storage and deleted after processing, including on failure and timeout paths. 
 
 ## 3. Application structure and frontend
 

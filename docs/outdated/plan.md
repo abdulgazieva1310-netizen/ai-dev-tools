@@ -1,3 +1,4 @@
+
 # SkillSwap — MVP Scope and Product Decisions
 
 **Status:** Initial product scope  
