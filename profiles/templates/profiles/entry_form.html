@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>{{ heading }}</title></head>
+  <body>
+    <main>
+      <h1>{{ heading }}</h1>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}
+          <div>{{ field.label_tag }} {{ field }} {{ field.errors }}</div>
+        {% endfor %}
+        <button type="submit">Save entry</button>
+      </form>
+      <a href="{% url 'profile_detail' profile.pk %}">Back to profile</a>
+    </main>
+  </body>
+</html>

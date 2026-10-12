@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Profile skill</title></head>
+  <body>
+    <main>
+      <h1>{% if entry %}Edit{% else %}Add{% endif %} a skill</h1>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}
+          <div>{{ field.label_tag }} {{ field }} {{ field.errors }}</div>
+        {% endfor %}
+        <button type="submit">Save skill</button>
+      </form>
+      {% if entry %}
+        <form method="post" action="{% url 'skill_delete' profile.pk entry.pk %}">
+          {% csrf_token %}<button type="submit">Delete skill</button>
+        </form>
+      {% endif %}
+      <a href="{% url 'profile_detail' profile.pk %}">Back to profile</a>
+    </main>
+  </body>
+</html>

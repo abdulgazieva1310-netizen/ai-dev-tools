@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>{{ heading }}</title></head>
+  <body>
+    <main>
+      <h1>{{ heading }}</h1>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}
+          <div>
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+            {{ field.errors }}
+          </div>
+        {% endfor %}
+        <button type="submit">Save profile</button>
+      </form>
+      {% if profile %}
+        <p><a href="{% url 'profile_detail' profile.pk %}">View profile</a></p>
+        <form method="post" action="{% url 'profile_delete' profile.pk %}">
+          {% csrf_token %}<button type="submit">Delete profile</button>
+        </form>
+      {% endif %}
+    </main>
+  </body>
+</html>

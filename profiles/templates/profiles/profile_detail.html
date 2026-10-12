@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>{{ profile.display_name }} — profile</title></head>
+  <body>
+    <main>
+      <h1>{{ profile.display_name }}</h1>
+      {% if profile.bio %}<p>{{ profile.bio|linebreaksbr }}</p>{% endif %}
+      <section aria-labelledby="languages-heading">
+        <h2 id="languages-heading">Languages</h2>
+        {% if profile.languages %}
+          <ul>{% for language in profile.languages %}<li>{{ language }}</li>{% endfor %}</ul>
+        {% else %}<p>No languages listed.</p>{% endif %}
+      </section>
+      {% if is_owner %}
+        <p><a href="{% url 'profile_edit' profile.pk %}">Edit profile</a></p>
+      {% endif %}
+      <section aria-labelledby="projects-heading">
+        <h2 id="projects-heading">Projects</h2>
+        {% if projects %}
+          <ul>
+            {% for project in projects %}
+              <li>
+                <strong>{{ project.title }}</strong>
+                {% if project.description %}<p>{{ project.description|linebreaksbr }}</p>{% endif %}
+                {% if project.url %}<a href="{{ project.url }}">Project link</a>{% endif %}
+                {% if is_owner %}
+                  <a href="{% url 'project_edit' profile.pk project.pk %}">Edit</a>
+                  <form method="post" action="{% url 'project_delete' profile.pk project.pk %}">
+                    {% csrf_token %}<button type="submit">Delete project</button>
+                  </form>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}<p>No projects listed.</p>{% endif %}
+        {% if is_owner %}<a href="{% url 'project_create' profile.pk %}">Add project</a>{% endif %}
+      </section>
+      <section aria-labelledby="certificates-heading">
+        <h2 id="certificates-heading">Certificates</h2>
+        {% if certificates %}
+          <ul>
+            {% for certificate in certificates %}
+              <li>
+                <strong>{{ certificate.title }}</strong>
+                {% if certificate.description %}<p>{{ certificate.description|linebreaksbr }}</p>{% endif %}
+                {% if certificate.url %}<a href="{{ certificate.url }}">Certificate link</a>{% endif %}
+                {% if is_owner %}
+                  <a href="{% url 'certificate_edit' profile.pk certificate.pk %}">Edit</a>
+                  <form method="post" action="{% url 'certificate_delete' profile.pk certificate.pk %}">
+                    {% csrf_token %}<button type="submit">Delete certificate</button>
+                  </form>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}<p>No certificates listed.</p>{% endif %}
+        {% if is_owner %}<a href="{% url 'certificate_create' profile.pk %}">Add certificate</a>{% endif %}
+      </section>
+      <section aria-labelledby="skills-heading">
+        <h2 id="skills-heading">Skills</h2>
+        {% if skill_interests %}
+          <ul>
+            {% for interest in skill_interests %}
+              <li>
+                {{ interest.skill.name }} — {{ interest.get_intent_display }} ({{ interest.get_level_display }})
+                {% if is_owner %}
+                  <a href="{% url 'skill_edit' profile.pk interest.pk %}">Edit</a>
+                  <form method="post" action="{% url 'skill_delete' profile.pk interest.pk %}">
+                    {% csrf_token %}<button type="submit">Delete skill</button>
+                  </form>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}<p>No skills listed.</p>{% endif %}
+        {% if is_owner %}<a href="{% url 'skill_create' profile.pk %}">Add skill</a>{% endif %}
+      </section>
+    </main>
+  </body>
+</html>

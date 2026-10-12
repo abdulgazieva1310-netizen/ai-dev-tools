@@ -8,5 +8,6 @@ def home(request):
 
 urlpatterns = [
     path("", include("accounts.urls")),
+    path("", include("profiles.urls")),
     path("", home, name="home"),
 ]

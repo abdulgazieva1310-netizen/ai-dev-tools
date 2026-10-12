@@ -73,3 +73,11 @@ Register the same callback URL with Google. For local development, use
 The app uses Google OpenID Connect at `/google/login/`; signed-in users can
 explicitly link an identity at `/google/link/`. The external identity table keeps
 Google's stable subject identifier. Account matching by email does not link identities.
+
+## Profiles
+
+An active signed-in account can create one profile at `/profile/new/`. The owner
+can edit privacy, biography, language labels, projects, certificates, and teaching
+or learning skills from the profile page. Profile URLs use opaque numeric IDs at
+`/profiles/<id>/`; server-side visibility checks return 404 when a viewer lacks
+access. Apply the profile schema with `uv run python manage.py migrate`.
