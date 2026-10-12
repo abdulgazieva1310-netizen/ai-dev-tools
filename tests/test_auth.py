@@ -4,11 +4,15 @@ from urllib.parse import urlsplit
 import pytest
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
-from django.core import mail
-from django.test import override_settings
+from django.core import mail, signing
+from django.http import HttpResponse
+from django.test import RequestFactory, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
+from accounts.email_verification import TOKEN_SALT
 from accounts.models import User
+from accounts.views import email_verified_required
 
 
 @pytest.mark.django_db
@@ -256,6 +260,218 @@ def test_logout_and_password_reset_confirmation_require_csrf_token():
         kwargs={"uidb64": "MQ", "token": "invalid-token"},
     )
     assert client.post(reset_url, {}).status_code == 403
+
+
+@pytest.mark.django_db
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_registration_sends_signed_verification_email_and_stays_unverified(client):
+    response = client.post(
+        reverse("register"),
+        {
+            "email": "person@example.com",
+            "password1": "correct-horse-and-battery-staple",
+            "password2": "correct-horse-and-battery-staple",
+        },
+    )
+
+    user = User.objects.get(email="person@example.com")
+    assert response.status_code == 302
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == [user.email]
+    assert "Verify your SkillSwap email address" in mail.outbox[0].body
+    verification_link = next(
+        line for line in mail.outbox[0].body.splitlines() if "/verify-email/" in line
+    )
+    verification_path = urlsplit(verification_link).path
+    token = verification_path.rstrip("/").rsplit("/", 1)[-1]
+    assert signing.loads(
+        token, salt=TOKEN_SALT, max_age=settings.EMAIL_VERIFICATION_TIMEOUT
+    ) == {"purpose": "verify-email", "user_id": user.pk, "email": user.email}
+    assert settings.EMAIL_VERIFICATION_TIMEOUT == 86400
+    assert user.email_verified_at is None
+
+    other_user = User.objects.create_user("other@example.com", "correct-horse")
+    verify_response = client.get(verification_path)
+    user.refresh_from_db()
+    other_user.refresh_from_db()
+    assert verify_response.status_code == 200
+    assert user.email_verified_at is not None
+    assert other_user.email_verified_at is None
+
+
+@pytest.mark.django_db
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_verification_link_verifies_only_its_account_and_cannot_be_replayed(client):
+    user = User.objects.create_user("person@example.com", "correct-horse")
+    other_user = User.objects.create_user("other@example.com", "correct-horse")
+    payload = {"purpose": "verify-email", "user_id": user.pk, "email": user.email}
+    token = signing.dumps(payload, salt=TOKEN_SALT)
+
+    response = client.get(reverse("verify_email", kwargs={"token": token}))
+    user.refresh_from_db()
+    other_user.refresh_from_db()
+    assert response.status_code == 200
+    assert user.email_verified_at is not None
+    assert other_user.email_verified_at is None
+
+    replay = client.get(reverse("verify_email", kwargs={"token": token}))
+    assert replay.status_code == 400
+    assert b"invalid, expired, or has already been used" in replay.content
+
+
+@pytest.mark.django_db
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    EMAIL_VERIFICATION_TIMEOUT=7200,
+)
+def test_verification_link_works_with_positive_configured_timeout(client):
+    response = client.post(
+        reverse("register"),
+        {
+            "email": "person@example.com",
+            "password1": "correct-horse-and-battery-staple",
+            "password2": "correct-horse-and-battery-staple",
+        },
+    )
+    assert response.status_code == 302
+    user = User.objects.get(email="person@example.com")
+    verification_link = next(
+        line for line in mail.outbox[0].body.splitlines() if "/verify-email/" in line
+    )
+    verification_path = urlsplit(verification_link).path
+    token = verification_path.rstrip("/").rsplit("/", 1)[-1]
+    assert signing.loads(token, salt=TOKEN_SALT, max_age=7200)["user_id"] == user.pk
+
+    response = client.get(verification_path)
+
+    assert response.status_code == 200
+    user.refresh_from_db()
+    assert user.email_verified_at is not None
+
+
+@pytest.mark.django_db
+@override_settings(EMAIL_VERIFICATION_TIMEOUT=-1)
+def test_expired_verification_link_has_generic_failure(client):
+    user = User.objects.create_user("person@example.com", "correct-horse")
+    token = signing.dumps(
+        {"purpose": "verify-email", "user_id": user.pk, "email": user.email},
+        salt=TOKEN_SALT,
+    )
+
+    response = client.get(reverse("verify_email", kwargs={"token": token}))
+
+    assert response.status_code == 400
+    assert b"invalid, expired, or has already been used" in response.content
+    user.refresh_from_db()
+    assert user.email_verified_at is None
+
+
+@pytest.mark.django_db
+def test_invalid_purpose_verification_link_fails_generically(client):
+    user = User.objects.create_user("person@example.com", "correct-horse")
+    token = signing.dumps(
+        {"purpose": "password-reset", "user_id": user.pk, "email": user.email},
+        salt=TOKEN_SALT,
+    )
+
+    response = client.get(reverse("verify_email", kwargs={"token": token}))
+
+    assert response.status_code == 400
+    user.refresh_from_db()
+    assert user.email_verified_at is None
+
+
+@pytest.mark.django_db
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_resend_verification_only_sends_to_authenticated_users_own_address(client):
+    user = User.objects.create_user("person@example.com", "correct-horse")
+    client.force_login(user)
+
+    response = client.post(
+        reverse("resend_verification"), {"email": "other@example.com"}
+    )
+    assert response.status_code == 302
+    assert response.url == reverse("verification_resend_done")
+    assert len(mail.outbox) == 0
+
+    response = client.post(
+        reverse("resend_verification"), {"email": "PERSON@example.com"}
+    )
+    assert response.status_code == 302
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == [user.email]
+
+
+@pytest.mark.django_db
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_verified_user_cannot_trigger_another_verification_email(client):
+    user = User.objects.create_user("person@example.com", "correct-horse")
+    user.email_verified_at = timezone.now()
+    user.save(update_fields=["email_verified_at"])
+    client.force_login(user)
+
+    response = client.post(reverse("resend_verification"), {"email": user.email})
+
+    assert response.status_code == 302
+    assert response.url == reverse("verification_resend_done")
+    assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_verification_delivery_failure_keeps_account_unverified(client, monkeypatch):
+    def fail_send(*args, **kwargs):
+        raise OSError("mail server unavailable")
+
+    monkeypatch.setattr("accounts.views.send_verification_email", fail_send)
+    response = client.post(
+        reverse("register"),
+        {
+            "email": "person@example.com",
+            "password1": "correct-horse-and-battery-staple",
+            "password2": "correct-horse-and-battery-staple",
+        },
+    )
+
+    user = User.objects.get(email="person@example.com")
+    assert response.status_code == 503
+    assert b"account was created" in response.content
+    assert user.email_verified_at is None
+
+    client.force_login(user)
+    monkeypatch.undo()
+    resend_response = client.post(
+        reverse("resend_verification"), {"email": user.email.upper()}
+    )
+
+    assert resend_response.status_code == 302
+    assert resend_response.url == reverse("verification_resend_done")
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == [user.email]
+    verification_link = next(
+        line for line in mail.outbox[0].body.splitlines() if "/verify-email/" in line
+    )
+    token = urlsplit(verification_link).path.rstrip("/").rsplit("/", 1)[-1]
+    assert signing.loads(token, salt=TOKEN_SALT)["user_id"] == user.pk
+
+
+@pytest.mark.django_db
+def test_email_verified_gate_redirects_unverified_users_and_allows_verified_users():
+    request_factory = RequestFactory()
+    guarded_view = email_verified_required(lambda request: HttpResponse("ok"))
+    user = User.objects.create_user("person@example.com", "correct-horse")
+    request = request_factory.get("/protected/")
+    request.user = user
+
+    response = guarded_view(request)
+    assert response.status_code == 302
+    assert response.url == reverse("email_verification_required")
+
+    user.email_verified_at = timezone.now()
+    request.user = user
+    response = guarded_view(request)
+    assert response.status_code == 200
+    assert response.content == b"ok"
 
 
 @pytest.mark.django_db

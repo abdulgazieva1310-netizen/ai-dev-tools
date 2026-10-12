@@ -48,3 +48,7 @@ class RegistrationForm(forms.Form):
         return User.objects.create_user(
             self.cleaned_data["email"], self.cleaned_data["password1"]
         )
+
+
+class VerificationResendForm(forms.Form):
+    email = forms.EmailField()

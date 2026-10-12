@@ -1,0 +1,3 @@
+Verify your SkillSwap email address by opening this link:
+
+{{ verification_url }}

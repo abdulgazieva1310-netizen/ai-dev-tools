@@ -1,26 +1,29 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path, reverse_lazy
-from django.views.generic import FormView
 
-from accounts.forms import (
-    AccountAuthenticationForm,
-    AccountPasswordResetForm,
-    RegistrationForm,
+from accounts.forms import AccountAuthenticationForm, AccountPasswordResetForm
+from accounts.views import (
+    RegistrationView,
+    email_verification_required,
+    resend_verification,
+    verification_resend_done,
+    verify_email,
 )
-
-
-class RegistrationView(FormView):
-    template_name = "accounts/register.html"
-    form_class = RegistrationForm
-    success_url = reverse_lazy("login")
-
-    def form_valid(self, form):
-        form.save()
-        return super().form_valid(form)
-
 
 urlpatterns = [
     path("register/", RegistrationView.as_view(), name="register"),
+    path(
+        "verify-email/required/",
+        email_verification_required,
+        name="email_verification_required",
+    ),
+    path("verify-email/resend/", resend_verification, name="resend_verification"),
+    path(
+        "verify-email/resend/done/",
+        verification_resend_done,
+        name="verification_resend_done",
+    ),
+    path("verify-email/<str:token>/", verify_email, name="verify_email"),
     path(
         "login/",
         auth_views.LoginView.as_view(
