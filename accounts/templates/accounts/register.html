@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Create an account</title></head>
+  <body>
+    <h1>Create an account</h1>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      {{ form.email.label_tag }} {{ form.email }} {{ form.email.errors }}
+      {{ form.password1.label_tag }} {{ form.password1 }} {{ form.password1.errors }}
+      {{ form.password2.label_tag }} {{ form.password2 }} {{ form.password2.errors }}
+      <button type="submit">Create account</button>
+    </form>
+  </body>
+</html>
