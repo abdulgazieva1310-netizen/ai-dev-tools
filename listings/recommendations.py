@@ -149,15 +149,25 @@ def _apply_diversity(ranked, limit, published_counts, learner_id):
         block, pool = _select_block(pool, capacity, published_counts, learner_id)
         if not block:
             break
+        if len(block) < capacity and pool:
+            # A per-owner or new-teacher cap left this block short while
+            # eligible listings still remain. Emitting the short block would
+            # let the next block start early, so the fixed ten-result windows
+            # of the final list would straddle block boundaries. Stop instead
+            # and return only the fully aligned blocks.
+            break
         result.extend(block)
     return result
 
 
 def _select_block(pool, capacity, published_counts, learner_id):
-    reserved = _reserved_new_teacher(pool, published_counts, learner_id)
-
     selected = []
     owner_counts = Counter()
+
+    # At most one new-teacher listing per block. The highest-ranked eligible
+    # new teacher takes the single reserved slot, even though a higher-ranked
+    # established owner would otherwise fill the list.
+    reserved = _reserved_new_teacher(pool, published_counts, learner_id)
     if reserved is not None:
         selected.append(reserved)
         owner_counts[reserved[2].owner_id] += 1
@@ -170,11 +180,10 @@ def _select_block(pool, capacity, published_counts, learner_id):
         owner_id = item[2].owner_id
         if owner_id == learner_id:
             continue
-        if published_counts.get(owner_id, 0) < NEW_TEACHER_PUBLISHED_THRESHOLD:
-            cap = NEW_TEACHER_BLOCK_CAP
-        else:
-            cap = OWNER_BLOCK_CAP
-        if owner_counts[owner_id] >= cap:
+        if _is_new_teacher(owner_id, published_counts):
+            # Only the single reserved new-teacher slot is available.
+            continue
+        if owner_counts[owner_id] >= OWNER_BLOCK_CAP:
             continue
         selected.append(item)
         owner_counts[owner_id] += 1
@@ -189,10 +198,16 @@ def _select_block(pool, capacity, published_counts, learner_id):
 
 
 def _reserved_new_teacher(pool, published_counts, learner_id):
+    if NEW_TEACHER_BLOCK_CAP <= 0:
+        return None
     for item in pool:
         owner_id = item[2].owner_id
         if owner_id == learner_id:
             continue
-        if published_counts.get(owner_id, 0) < NEW_TEACHER_PUBLISHED_THRESHOLD:
+        if _is_new_teacher(owner_id, published_counts):
             return item
     return None
+
+
+def _is_new_teacher(owner_id, published_counts):
+    return published_counts.get(owner_id, 0) < NEW_TEACHER_PUBLISHED_THRESHOLD

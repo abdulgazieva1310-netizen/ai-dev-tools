@@ -1,3 +1,5 @@
+from collections import Counter
+
 import pytest
 from django.contrib.auth.models import AnonymousUser
 
@@ -51,6 +53,17 @@ def want(profile, skill, level):
     )
 
 
+def pad_published(owner, count=2):
+    """Give an owner enough published listings to stop being a "new teacher".
+
+    New teachers (fewer than three published listings) share a single reserved
+    slot per block, so scoring tests add fillers to keep the owners under test
+    outside that pool. The fillers sort last by title.
+    """
+    for index in range(count):
+        make_listing(owner, f"Zz{owner.pk}-{index}")
+
+
 @pytest.mark.django_db
 def test_wanted_skill_match_is_the_strongest_single_signal():
     learner = make_user("learner@example.com")
@@ -75,8 +88,10 @@ def test_wanted_skill_match_is_the_strongest_single_signal():
         skill=django,
         level=ProfileSkill.Level.ADVANCED,
     )
+    pad_published(matched_owner)
+    pad_published(unmatched_owner)
 
-    result = recommend_listings(learner, [], limit=10)
+    result = recommend_listings(learner, [], limit=2)
 
     assert result == [matched, unmatched]
 
@@ -105,8 +120,10 @@ def test_matching_level_adds_points_on_top_of_the_skill_match():
         skill=python,
         level=ProfileSkill.Level.ADVANCED,
     )
+    pad_published(matching_owner)
+    pad_published(other_owner)
 
-    result = recommend_listings(learner, [], limit=10)
+    result = recommend_listings(learner, [], limit=2)
 
     assert result == [matching, advanced]
 
@@ -145,10 +162,13 @@ def test_shared_language_adds_points_case_insensitively_and_trimmed():
     make_profile(other_owner, languages=["French"])
     shared = make_listing(shared_owner, "Zulu")
     other = make_listing(other_owner, "Alpha")
+    pad_published(shared_owner)
+    pad_published(other_owner)
 
     result = recommend_listings(learner, [], limit=10)
 
-    assert result == [shared, other]
+    ranked = [listing for listing in result if listing.pk in {shared.pk, other.pk}]
+    assert ranked == [shared, other]
 
 
 @pytest.mark.django_db
@@ -162,10 +182,13 @@ def test_followed_teacher_adds_points():
     make_profile(other_owner)
     followed = make_listing(followed_owner, "Zulu")
     other = make_listing(other_owner, "Alpha")
+    pad_published(followed_owner)
+    pad_published(other_owner)
 
     result = recommend_listings(learner, [followed_owner.pk], limit=10)
 
-    assert result == [followed, other]
+    ranked = [listing for listing in result if listing.pk in {followed.pk, other.pk}]
+    assert ranked == [followed, other]
 
 
 @pytest.mark.django_db
@@ -189,10 +212,15 @@ def test_all_four_signals_accumulate_into_one_total():
         partial_owner, "Partial", skill=python, level=ProfileSkill.Level.BEGINNER
     )
     zero = make_listing(zero_owner, "Zero")
+    pad_published(full_owner)
+    pad_published(partial_owner)
+    pad_published(zero_owner)
 
     result = recommend_listings(learner, [full_owner.pk], limit=10)
 
-    assert result == [full, partial, zero]
+    scored = {full.pk, partial.pk, zero.pk}
+    ranked = [listing for listing in result if listing.pk in scored]
+    assert ranked == [full, partial, zero]
 
 
 @pytest.mark.django_db
@@ -204,8 +232,10 @@ def test_score_ties_are_broken_by_title_then_primary_key():
 
     bravo = make_listing(first_owner, "Bravo")
     alpha = make_listing(second_owner, "Alpha")
+    pad_published(first_owner)
+    pad_published(second_owner)
 
-    result = recommend_listings(AnonymousUser(), [], limit=10)
+    result = recommend_listings(AnonymousUser(), [], limit=2)
 
     assert result == [alpha, bravo]
 
@@ -219,26 +249,33 @@ def test_identical_titles_are_broken_by_primary_key():
 
     earliest = make_listing(first_owner, "Same title")
     latest = make_listing(second_owner, "Same title")
+    pad_published(first_owner)
+    pad_published(second_owner)
 
-    result = recommend_listings(AnonymousUser(), [], limit=10)
+    result = recommend_listings(AnonymousUser(), [], limit=2)
 
     assert result == [earliest, latest]
 
 
 @pytest.mark.django_db
 def test_anonymous_cold_start_returns_a_diverse_eligible_list():
-    for index in range(3):
-        owner = make_user(f"owner-{index}@example.com")
+    expected = []
+    for owner_index in range(4):
+        owner = make_user(f"owner-{owner_index}@example.com")
         make_profile(owner)
-        make_listing(owner, f"Lesson {index}")
+        for listing_index in range(3):
+            expected.append(
+                make_listing(owner, f"Lesson {owner_index}-{listing_index}")
+            )
 
     result = recommend_listings(AnonymousUser(), [], limit=10)
 
-    assert [listing.title for listing in result] == [
-        "Lesson 0",
-        "Lesson 1",
-        "Lesson 2",
-    ]
+    # Four owners with three listings each: the first block is filled to ten
+    # with three listings each from the first three owners plus one from the
+    # fourth; no owner repeats more than the cap.
+    assert result == expected[:10]
+    counts = Counter(listing.owner_id for listing in result)
+    assert max(counts.values()) <= 3
 
 
 @pytest.mark.django_db
@@ -260,17 +297,83 @@ def test_owner_cap_limits_repeats_within_a_block():
     for index in range(6):
         make_listing(prolific, f"A{index}")
 
-    others = []
-    for index in range(7):
-        owner = make_user(f"other-{index}@example.com")
+    for group in "BCD":
+        owner = make_user(f"{group.lower()}-owner@example.com")
         make_profile(owner)
-        others.append(make_listing(owner, f"B{index}"))
+        for index in range(3):
+            make_listing(owner, f"{group}{index}")
 
     result = recommend_listings(AnonymousUser(), [], limit=10)
 
     assert len(result) == 10
     prolific_count = sum(1 for listing in result if listing.owner_id == prolific.pk)
     assert prolific_count == 3
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("limit", [20, 25])
+def test_owner_cap_holds_across_every_fixed_ten_result_window(limit):
+    for owner_index in range(9):
+        owner = make_user(f"owner-{owner_index}@example.com")
+        make_profile(owner)
+        for listing_index in range(3):
+            make_listing(owner, f"L{owner_index}-{listing_index}")
+
+    result = recommend_listings(AnonymousUser(), [], limit=limit)
+
+    assert len(result) == limit
+    for start in range(0, len(result), 10):
+        window = result[start : start + 10]
+        counts = Counter(listing.owner_id for listing in window)
+        assert counts, "ten-result windows are aligned and non-empty"
+        assert max(counts.values()) <= 3
+
+
+@pytest.mark.django_db
+def test_block_holds_at_most_one_new_teacher_but_keeps_the_reserved_slot():
+    for owner_index in range(4):
+        owner = make_user(f"established-{owner_index}@example.com")
+        make_profile(owner)
+        for listing_index in range(3):
+            make_listing(owner, f"E{owner_index}-{listing_index}")
+
+    newcomers = []
+    for index in range(3):
+        owner = make_user(f"newcomer-{index}@example.com")
+        make_profile(owner)
+        newcomers.append(make_listing(owner, f"Newcomer {index}"))
+
+    result = recommend_listings(AnonymousUser(), [], limit=10)
+
+    assert len(result) == 10
+    newcomer_owner_ids = {listing.owner_id for listing in newcomers}
+    included_newcomers = [
+        listing for listing in result if listing.owner_id in newcomer_owner_ids
+    ]
+    # Exactly one new-teacher listing: the reserved slot.
+    assert len(included_newcomers) == 1
+    assert included_newcomers[0] == newcomers[0]
+
+
+@pytest.mark.django_db
+def test_dominant_owner_windows_never_exceed_the_cap_even_when_short():
+    prolific = make_user("prolific@example.com")
+    make_profile(prolific)
+    for index in range(30):
+        make_listing(prolific, f"P{index:02d}")
+
+    newcomer = make_user("newcomer@example.com")
+    make_profile(newcomer)
+    make_listing(newcomer, "A newbie")
+
+    result = recommend_listings(AnonymousUser(), [], limit=25)
+
+    # Respecting the caps leaves a partial block, so the list stops rather
+    # than emitting a misaligned block.
+    assert len(result) < 10
+    counts = Counter(listing.owner_id for listing in result)
+    assert counts[prolific.pk] <= 3
+    assert sum(1 for listing in result if listing.owner_id == newcomer.pk) <= 1
 
 
 @pytest.mark.django_db
@@ -358,13 +461,13 @@ def test_unknown_inactive_and_self_followed_ids_are_ignored():
     other_owner = make_user("other@example.com")
     make_profile(other_owner)
     other_listing = make_listing(other_owner, "Other")
+    pad_published(followed_owner)
+    pad_published(other_owner)
 
-    ignored = recommend_listings(
-        learner, [987654321, learner.pk, inactive.pk], limit=10
-    )
+    ignored = recommend_listings(learner, [987654321, learner.pk, inactive.pk], limit=2)
     assert ignored == [followed_listing, other_listing]
 
-    counted = recommend_listings(learner, [followed_owner.pk], limit=10)
+    counted = recommend_listings(learner, [followed_owner.pk], limit=2)
     assert counted[0] == followed_listing
 
 
@@ -373,7 +476,8 @@ def test_limit_controls_the_number_of_results():
     for index in range(4):
         owner = make_user(f"owner-{index}@example.com")
         make_profile(owner)
-        make_listing(owner, f"Lesson {index}")
+        for listing_index in range(3):
+            make_listing(owner, f"Lesson {index}-{listing_index}")
 
     assert len(recommend_listings(AnonymousUser(), [], limit=2)) == 2
     assert recommend_listings(AnonymousUser(), [], limit=0) == []

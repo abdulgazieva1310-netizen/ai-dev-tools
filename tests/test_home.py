@@ -34,13 +34,16 @@ def test_home_lists_up_to_five_recommendations_linked_to_their_detail(client):
         Profile.objects.create(
             user=owner, display_name="Owner", visibility=Profile.Visibility.PUBLIC
         )
-        listings.append(
-            Listing.objects.create(
-                owner=owner,
-                title=f"Lesson {index}",
-                state=Listing.State.PUBLISHED,
+        # Three published listings keep each owner out of the new-teacher pool,
+        # whose single reserved slot would otherwise cap the homepage list.
+        for extra in range(3):
+            listings.append(
+                Listing.objects.create(
+                    owner=owner,
+                    title=f"Lesson {index}-{extra}",
+                    state=Listing.State.PUBLISHED,
+                )
             )
-        )
 
     response = client.get(reverse("home"))
 

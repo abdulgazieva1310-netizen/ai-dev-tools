@@ -43,13 +43,19 @@ review, or wall-clock recency signal is used.
 The returned results are treated as consecutive blocks of up to ten.
 
 - No single owner appears more than three times in a block.
-- Each block contains at most one listing from a given teacher with fewer than
-  three published listings (counted across all of that owner's published
-  listings).
-- Each block reserves at most one slot for an eligible teacher with fewer than
-  three published listings. When such a teacher has an eligible listing, one is
-  included in the block even though a higher-ranked repeat would otherwise fill
-  the list.
+- Each block contains at most one listing from the pool of teachers with fewer
+  than three published listings (counted across all of that owner's published
+  listings). That single slot is reserved: when such a teacher has an eligible
+  listing, its highest-ranked one is included even though a higher-ranked
+  repeat would otherwise fill the list, and no second new-teacher listing is
+  added to the same block. Teachers with three or more published listings are
+  not part of this pool and are capped at three per block by the rule above.
+- Blocks are aligned to fixed ten-result windows of the final list. A block is
+  emitted only when it is filled to its full capacity
+  (`min(BLOCK_SIZE, limit - len(result))`). If the per-owner or new-teacher caps
+  leave a block short while eligible listings still remain, the list ends there
+  rather than starting a new, misaligned block. This guarantees that no window
+  of up to ten consecutive results can straddle two blocks and exceed the caps.
 
 ## Cold start
 
