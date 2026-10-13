@@ -1,45 +1,47 @@
-<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><title>Search lessons</title></head>
-  <body>
-    <main>
-      <h1>Search lessons</h1>
-      <form method="get" action="{% url 'listing_search' %}">
-        <label>Search <input type="search" name="q" value="{{ selected.q }}"></label>
-        <label>Category
-          <select name="category"><option value="">Any category</option>
-            {% for category in categories %}<option value="{{ category.pk }}" {% if selected.category == category.pk|stringformat:'s' %}selected{% endif %}>{{ category.name }}</option>{% endfor %}
-          </select>
-        </label>
-        <label>Skill
-          <select name="skill"><option value="">Any skill</option>
-            {% for skill in skills %}<option value="{{ skill.pk }}" {% if selected.skill == skill.pk|stringformat:'s' %}selected{% endif %}>{{ skill.name }}</option>{% endfor %}
-          </select>
-        </label>
-        <label>Type
-          <select name="type"><option value="">Any type</option>
-            {% for value,label in types %}<option value="{{ value }}" {% if selected.type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-          </select>
-        </label>
-        <label>Level
-          <select name="level"><option value="">Any level</option>
-            {% for value,label in levels %}<option value="{{ value }}" {% if selected.level == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-          </select>
-        </label>
-        <label>Teacher language <input name="language" value="{{ selected.language }}"></label>
-        <button type="submit">Search</button>
-        <a href="{% url 'listing_search' %}">Clear filters</a>
-      </form>
-      {% if page_obj.object_list %}
-        <ul>
-          {% for listing in page_obj %}
-            <li><a href="{% url 'listing_detail' listing.pk %}">{{ listing.title }}</a> — {{ listing.skill.name }} ({{ listing.category.name }})</li>
-          {% endfor %}
-        </ul>
-      {% else %}<p>No published lessons match these filters.</p>{% endif %}
-      {% if page_obj.has_previous %}<a href="?{{ pagination_query }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
-      <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-      {% if page_obj.has_next %}<a href="?{{ pagination_query }}&amp;page={{ page_obj.next_page_number }}">Next</a>{% endif %}
-    </main>
-  </body>
-</html>
+{% extends "base.html" %}
+{% block title %}Search lessons{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">Search lessons</h1>
+  <form method="get" action="{% url 'listing_search' %}" class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <label class="block text-sm font-medium">Search
+      <input class="mt-1 w-full rounded border border-slate-300 px-2 py-1" type="search" name="q" value="{{ selected.q }}">
+    </label>
+    <label class="block text-sm font-medium">Category
+      <select class="mt-1 w-full rounded border border-slate-300 px-2 py-1" name="category"><option value="">Any category</option>
+        {% for category in categories %}<option value="{{ category.pk }}" {% if selected.category == category.pk|stringformat:'s' %}selected{% endif %}>{{ category.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="block text-sm font-medium">Skill
+      <select class="mt-1 w-full rounded border border-slate-300 px-2 py-1" name="skill"><option value="">Any skill</option>
+        {% for skill in skills %}<option value="{{ skill.pk }}" {% if selected.skill == skill.pk|stringformat:'s' %}selected{% endif %}>{{ skill.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="block text-sm font-medium">Type
+      <select class="mt-1 w-full rounded border border-slate-300 px-2 py-1" name="type"><option value="">Any type</option>
+        {% for value,label in types %}<option value="{{ value }}" {% if selected.type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="block text-sm font-medium">Level
+      <select class="mt-1 w-full rounded border border-slate-300 px-2 py-1" name="level"><option value="">Any level</option>
+        {% for value,label in levels %}<option value="{{ value }}" {% if selected.level == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="block text-sm font-medium">Teacher language <input class="mt-1 w-full rounded border border-slate-300 px-2 py-1" name="language" value="{{ selected.language }}"></label>
+    <div class="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-3">
+      {% include "partials/button.html" with label="Search" %}
+      <a class="hover:underline" href="{% url 'listing_search' %}">Clear filters</a>
+    </div>
+  </form>
+  {% if page_obj.object_list %}
+    <ul class="mt-4 space-y-2">
+      {% for listing in page_obj %}
+        <li><a class="font-medium hover:underline" href="{% url 'listing_detail' listing.pk %}">{{ listing.title }}</a> — {{ listing.skill.name }} ({{ listing.category.name }})</li>
+      {% endfor %}
+    </ul>
+  {% else %}<p class="mt-4 text-slate-600">No published lessons match these filters.</p>{% endif %}
+  <div class="mt-4 flex flex-wrap items-center gap-3">
+    {% if page_obj.has_previous %}<a class="hover:underline" href="?{{ pagination_query }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}<a class="hover:underline" href="?{{ pagination_query }}&amp;page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+  </div>
+{% endblock %}

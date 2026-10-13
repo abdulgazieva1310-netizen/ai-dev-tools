@@ -21,6 +21,49 @@ uv run pytest tests/test_home.py
 uv run pytest
 ```
 
+## Frontend assets
+
+The responsive page shell (`templates/base.html`) is styled with Tailwind CSS
+and served through Django static files. Frontend source lives in `frontend/`
+and is built to `static/build/` with Vite. `node_modules/` and `static/build/`
+are build artifacts and are gitignored; `package.json` and `package-lock.json`
+are committed.
+
+Install the frontend toolchain from the lockfile (use `npm install` instead of
+`npm ci` when you change `package.json`):
+
+```sh
+npm ci
+```
+
+Build the hashed stylesheet, module script, and Vite manifest into
+`static/build/`:
+
+```sh
+npm run build
+```
+
+Run the Vite dev server with hot reload at <http://localhost:5173/>. Set
+`VITE_DEV_SERVER_URL=http://localhost:5173` in your environment so Django
+templates load modules from the dev server; leave it unset to use the built
+manifest:
+
+```sh
+npm run dev
+```
+
+In production, collect the built assets (and everything else in `static/`)
+into `STATIC_ROOT` and serve them with Django or a web server:
+
+```sh
+uv run python manage.py collectstatic --noinput
+```
+
+The `{% vite_asset %}` template tag renders the stylesheet and module script
+tags from the manifest, or the dev-server tags when `VITE_DEV_SERVER_URL` is
+set. If no manifest exists and no dev server is configured, it renders nothing
+so pages keep working.
+
 ## Docker Compose development environment
 
 Copy the example environment file and start the Django and PostgreSQL services:

@@ -1,54 +1,56 @@
-<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><title>{{ listing.title|default:"Lesson listing" }}</title></head>
-  <body>
-    <main>
-      {% if transition_error %}
-        <p role="alert">{{ transition_error }}</p>
+{% extends "base.html" %}
+{% block title %}{{ listing.title|default:"Lesson listing" }}{% endblock %}
+{% block content %}
+  {% if transition_error %}
+    {% include "partials/alert.html" with message=transition_error %}
+  {% endif %}
+  <h1 class="text-2xl font-bold">{{ listing.title|default:"Untitled draft" }}</h1>
+  {% if listing.skill %}
+    <p class="mt-2">Skill: {{ listing.skill.name }}</p>
+    {% if listing.category %}<p>Category: {{ listing.category.name }}</p>{% endif %}
+  {% endif %}
+  {% if is_owner or is_staff_viewer %}<p>State: {{ listing.get_state_display }}</p>{% endif %}
+  {% if is_owner and listing.state == "rejected" %}
+    <section aria-labelledby="rejection-heading" class="mt-4">
+      <h2 id="rejection-heading" class="text-lg font-semibold">Review feedback</h2>
+      <p>{{ listing.rejection_reason }}</p>
+    </section>
+  {% endif %}
+  {% if listing.description %}<p class="mt-3 text-slate-700">{{ listing.description|linebreaksbr }}</p>{% endif %}
+  {% if listing.learning_outcomes %}
+    <h2 class="mt-4 text-lg font-semibold">Learning outcomes</h2>
+    <ul class="list-disc pl-5">{% for outcome in listing.learning_outcomes.splitlines %}<li>{{ outcome }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if listing.level %}<p class="mt-2">Level: {{ listing.get_level_display }}</p>{% endif %}
+  {% if listing.duration_minutes %}<p>Duration: {{ listing.duration_minutes }} minutes</p>{% endif %}
+  {% if is_owner %}
+    <div class="mt-4 flex flex-wrap items-center gap-3">
+      {% if listing.state == "draft" or listing.state == "rejected" %}
+        <a class="hover:underline" href="{% url 'listing_edit' listing.pk %}">Edit draft</a>
       {% endif %}
-      <h1>{{ listing.title|default:"Untitled draft" }}</h1>
-      {% if listing.skill %}
-        <p>Skill: {{ listing.skill.name }}</p>
-        {% if listing.category %}<p>Category: {{ listing.category.name }}</p>{% endif %}
+      {% if listing.state == "draft" or listing.state == "rejected" %}
+        <form method="post" action="{% url 'listing_transition' listing.pk %}">
+          {% csrf_token %}
+          {% include "partials/button.html" with label="Submit for review" name="action" value="submit" %}
+        </form>
+      {% elif listing.state == "pending_review" %}
+        <form method="post" action="{% url 'listing_transition' listing.pk %}">
+          {% csrf_token %}
+          {% include "partials/button.html" with label="Withdraw submission" name="action" value="withdraw" %}
+        </form>
+      {% elif listing.state == "published" %}
+        <form method="post" action="{% url 'listing_transition' listing.pk %}">
+          {% csrf_token %}
+          {% include "partials/button.html" with label="Move to draft to edit" name="action" value="unpublish" %}
+        </form>
       {% endif %}
-      {% if is_owner or is_staff_viewer %}<p>State: {{ listing.get_state_display }}</p>{% endif %}
-      {% if is_owner and listing.state == "rejected" %}
-        <section aria-labelledby="rejection-heading">
-          <h2 id="rejection-heading">Review feedback</h2>
-          <p>{{ listing.rejection_reason }}</p>
-        </section>
+      {% if listing.state != "removed" %}
+        <form method="post" action="{% url 'listing_transition' listing.pk %}">
+          {% csrf_token %}
+          {% include "partials/button.html" with label="Remove listing" name="action" value="remove" %}
+        </form>
       {% endif %}
-      {% if listing.description %}<p>{{ listing.description|linebreaksbr }}</p>{% endif %}
-      {% if listing.learning_outcomes %}
-        <h2>Learning outcomes</h2>
-        <ul>{% for outcome in listing.learning_outcomes.splitlines %}<li>{{ outcome }}</li>{% endfor %}</ul>
-      {% endif %}
-      {% if listing.level %}<p>Level: {{ listing.get_level_display }}</p>{% endif %}
-      {% if listing.duration_minutes %}<p>Duration: {{ listing.duration_minutes }} minutes</p>{% endif %}
-      {% if is_owner %}
-        {% if listing.state == "draft" or listing.state == "rejected" %}
-          <p><a href="{% url 'listing_edit' listing.pk %}">Edit draft</a></p>
-        {% endif %}
-        {% if listing.state == "draft" or listing.state == "rejected" %}
-          <form method="post" action="{% url 'listing_transition' listing.pk %}">
-            {% csrf_token %}<button name="action" value="submit" type="submit">Submit for review</button>
-          </form>
-        {% elif listing.state == "pending_review" %}
-          <form method="post" action="{% url 'listing_transition' listing.pk %}">
-            {% csrf_token %}<button name="action" value="withdraw" type="submit">Withdraw submission</button>
-          </form>
-        {% elif listing.state == "published" %}
-          <form method="post" action="{% url 'listing_transition' listing.pk %}">
-            {% csrf_token %}<button name="action" value="unpublish" type="submit">Move to draft to edit</button>
-          </form>
-        {% endif %}
-        {% if listing.state != "removed" %}
-          <form method="post" action="{% url 'listing_transition' listing.pk %}">
-            {% csrf_token %}<button name="action" value="remove" type="submit">Remove listing</button>
-          </form>
-        {% endif %}
-      {% endif %}
-      <p><a href="{% url 'listing_index' %}">Back to live lessons</a></p>
-    </main>
-  </body>
-</html>
+    </div>
+  {% endif %}
+  <p class="mt-4"><a class="hover:underline" href="{% url 'listing_index' %}">Back to live lessons</a></p>
+{% endblock %}

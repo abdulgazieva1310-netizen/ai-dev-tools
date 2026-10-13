@@ -1,9 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><title>Verification link unavailable</title></head>
-  <body>
-    <h1>Verification link unavailable</h1>
-    <p>This link is invalid, expired, or has already been used.</p>
-    <a href="{% url 'login' %}">Sign in to request another link</a>
-  </body>
-</html>
+{% extends "base.html" %}
+{% block title %}Verification link unavailable{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">Verification link unavailable</h1>
+  <p class="mt-3 text-slate-700">This link is invalid, expired, or has already been used.</p>
+  <p class="mt-4"><a class="hover:underline" href="{% url 'login' %}">Sign in to request another link</a></p>
+{% endblock %}

@@ -3,3 +3,8 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Frontend dependencies and build output (the lockfile is committed).
+node_modules/
+static/build/
+staticfiles/

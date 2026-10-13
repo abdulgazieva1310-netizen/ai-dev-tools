@@ -1,9 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><title>Email verified</title></head>
-  <body>
-    <h1>Email verified</h1>
-    <p>Your email address is verified. You can now use your account.</p>
-    <a href="{% url 'login' %}">Sign in</a>
-  </body>
-</html>
+{% extends "base.html" %}
+{% block title %}Email verified{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">Email verified</h1>
+  <p class="mt-3 text-slate-700">Your email address is verified. You can now use your account.</p>
+  <p class="mt-4"><a class="hover:underline" href="{% url 'login' %}">Sign in</a></p>
+{% endblock %}

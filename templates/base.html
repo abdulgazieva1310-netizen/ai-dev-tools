@@ -1,0 +1,35 @@
+{% load vite_assets %}<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}SkillSwap{% endblock %}</title>
+    {% vite_asset "main" %}
+    {% block head_assets %}{% endblock %}
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-900">
+    <header class="border-b border-slate-200 bg-white">
+      <div class="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <a href="{% url 'home' %}" class="text-lg font-semibold tracking-tight text-slate-900">SkillSwap</a>
+        <nav aria-label="Primary" class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-700">
+          <a href="{% url 'home' %}" class="hover:underline">Home</a>
+          <a href="{% url 'listing_index' %}" class="hover:underline">Live lessons</a>
+          <a href="{% url 'listing_search' %}" class="hover:underline">Search lessons</a>
+          {% if user.is_authenticated %}
+            <form method="post" action="{% url 'logout' %}" class="inline">
+              {% csrf_token %}
+              <button type="submit" class="cursor-pointer hover:underline">Log out</button>
+            </form>
+          {% else %}
+            <a href="{% url 'login' %}" class="hover:underline">Sign in</a>
+            <a href="{% url 'register' %}" class="hover:underline">Register</a>
+          {% endif %}
+        </nav>
+      </div>
+    </header>
+    <main class="mx-auto w-full max-w-5xl px-4 py-6 md:py-8">
+      {% block content %}{% endblock %}
+    </main>
+    {% block body_assets %}{% endblock %}
+  </body>
+</html>

@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* Scan every Django template directory explicitly so utility classes used in
+   page markup are always part of the compiled stylesheet. */
+@source "../templates";
+@source "../accounts/templates";
+@source "../profiles/templates";
+@source "../listings/templates";

@@ -10,7 +10,11 @@ DEBUG = True
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver"]
 
 ROOT_URLCONF = "config.urls"
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATICFILES_DIRS = [BASE_DIR / "static"]
+# ``collectstatic`` copies ``static/`` (including the Vite ``static/build/``
+# output) into ``STATIC_ROOT`` for production serving.
+STATIC_ROOT = BASE_DIR / "staticfiles"
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -23,6 +27,7 @@ INSTALLED_APPS = [
     "listings",
     "jobs",
     "points",
+    "webassets",
     "mozilla_django_oidc",
 ]
 MIDDLEWARE = [
@@ -77,6 +82,11 @@ EMAIL_VERIFICATION_TIMEOUT = int(os.environ.get("EMAIL_VERIFICATION_TIMEOUT", "8
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "login"
+
+# Frontend assets (see README "Frontend assets").
+# When set (e.g. http://localhost:5173) templates load modules from the Vite
+# dev server instead of the built manifest.
+VITE_DEV_SERVER_URL = os.environ.get("VITE_DEV_SERVER_URL", "")
 
 # Starter points (see docs/points.md).
 STARTER_POINTS = int(os.environ.get("STARTER_POINTS", "20"))

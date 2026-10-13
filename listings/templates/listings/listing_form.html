@@ -1,28 +1,19 @@
-<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><title>{{ heading }}</title></head>
-  <body>
-    <main>
-      <h1>{{ heading }}</h1>
-      <form method="post">
-        {% csrf_token %}
-        {{ form.non_field_errors }}
-        {% for field in form %}
-          <div>
-            {{ field.label_tag }}
-            {{ field }}
-            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
-            {{ field.errors }}
-          </div>
-        {% endfor %}
-        <button name="action" value="save" type="submit">Save draft</button>
-        <button name="action" value="submit" type="submit">Submit for review</button>
-      </form>
-      {% if listing %}
-        <p><a href="{% url 'listing_detail' listing.pk %}">Back to listing</a></p>
-      {% else %}
-        <p><a href="{% url 'listing_index' %}">Back to live lessons</a></p>
-      {% endif %}
-    </main>
-  </body>
-</html>
+{% extends "base.html" %}
+{% block title %}{{ heading }}{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">{{ heading }}</h1>
+  <form method="post" class="mt-4 max-w-md space-y-2">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}{% include "partials/alert.html" with message=error %}{% endfor %}
+    {% for field in form %}{% include "partials/form_field.html" with field=field %}{% endfor %}
+    <div class="flex flex-wrap gap-2">
+      {% include "partials/button.html" with label="Save draft" name="action" value="save" %}
+      {% include "partials/button.html" with label="Submit for review" name="action" value="submit" %}
+    </div>
+  </form>
+  {% if listing %}
+    <p class="mt-4"><a class="hover:underline" href="{% url 'listing_detail' listing.pk %}">Back to listing</a></p>
+  {% else %}
+    <p class="mt-4"><a class="hover:underline" href="{% url 'listing_index' %}">Back to live lessons</a></p>
+  {% endif %}
+{% endblock %}

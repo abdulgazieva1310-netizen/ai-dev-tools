@@ -1,9 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><title>Verification email unavailable</title></head>
-  <body>
-    <h1>Your account was created</h1>
-    <p>We could not send the verification email right now. Your account is still unverified. Sign in later and request another verification email.</p>
-    <a href="{% url 'login' %}">Sign in</a>
-  </body>
-</html>
+{% extends "base.html" %}
+{% block title %}Verification email unavailable{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">Your account was created</h1>
+  <p class="mt-3 text-slate-700">We could not send the verification email right now. Your account is still unverified. Sign in later and request another verification email.</p>
+  <p class="mt-4"><a class="hover:underline" href="{% url 'login' %}">Sign in</a></p>
+{% endblock %}

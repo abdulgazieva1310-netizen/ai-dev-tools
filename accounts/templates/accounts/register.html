@@ -1,15 +1,13 @@
-<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><title>Create an account</title></head>
-  <body>
-    <h1>Create an account</h1>
-    <form method="post">
-      {% csrf_token %}
-      {{ form.non_field_errors }}
-      {{ form.email.label_tag }} {{ form.email }} {{ form.email.errors }}
-      {{ form.password1.label_tag }} {{ form.password1 }} {{ form.password1.errors }}
-      {{ form.password2.label_tag }} {{ form.password2 }} {{ form.password2.errors }}
-      <button type="submit">Create account</button>
-    </form>
-  </body>
-</html>
+{% extends "base.html" %}
+{% block title %}Create an account{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">Create an account</h1>
+  <form method="post" class="mt-4 max-w-md space-y-2">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}{% include "partials/alert.html" with message=error %}{% endfor %}
+    {% include "partials/form_field.html" with field=form.email %}
+    {% include "partials/form_field.html" with field=form.password1 %}
+    {% include "partials/form_field.html" with field=form.password2 %}
+    {% include "partials/button.html" with label="Create account" %}
+  </form>
+{% endblock %}

@@ -1,0 +1,6 @@
+<div class="mb-4">
+  <label for="{{ field.id_for_label }}" class="mb-1 block text-sm font-medium text-slate-800">{{ field.label }}</label>
+  {{ field }}
+  {% if field.help_text %}<p class="mt-1 text-xs text-slate-500">{{ field.help_text }}</p>{% endif %}
+  {% for error in field.errors %}{% include "partials/alert.html" with message=error %}{% endfor %}
+</div>

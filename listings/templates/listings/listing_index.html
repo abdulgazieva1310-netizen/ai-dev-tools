@@ -1,26 +1,22 @@
-<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><title>Live lessons</title></head>
-  <body>
-    <main>
-      <h1>Live lessons</h1>
-      <p><a href="{% url 'listing_search' %}">Search lessons</a></p>
-      {% if request.user.is_authenticated and request.user.is_active %}
-        <p><a href="{% url 'listing_create' %}">Create a live lesson</a></p>
-      {% endif %}
-      {% if listings %}
-        <ul>
-          {% for listing in listings %}
-            <li>
-              <a href="{% url 'listing_detail' listing.pk %}">{{ listing.title }}</a>
-              <span>{{ listing.skill.name }}</span>
-              <span>{{ listing.category.name }}</span>
-            </li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p>No published lessons are available.</p>
-      {% endif %}
-    </main>
-  </body>
-</html>
+{% extends "base.html" %}
+{% block title %}Live lessons{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">Live lessons</h1>
+  <p class="mt-2"><a class="hover:underline" href="{% url 'listing_search' %}">Search lessons</a></p>
+  {% if request.user.is_authenticated and request.user.is_active %}
+    <p class="mt-2"><a class="hover:underline" href="{% url 'listing_create' %}">Create a live lesson</a></p>
+  {% endif %}
+  {% if listings %}
+    <ul class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {% for listing in listings %}
+        <li class="rounded border border-slate-200 bg-white px-3 py-2">
+          <a class="font-medium hover:underline" href="{% url 'listing_detail' listing.pk %}">{{ listing.title }}</a>
+          <span class="block text-sm text-slate-500">{{ listing.skill.name }}</span>
+          <span class="block text-sm text-slate-500">{{ listing.category.name }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="mt-4 text-slate-600">No published lessons are available.</p>
+  {% endif %}
+{% endblock %}

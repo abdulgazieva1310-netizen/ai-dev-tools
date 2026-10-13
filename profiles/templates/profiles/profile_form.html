@@ -1,28 +1,18 @@
-<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><title>{{ heading }}</title></head>
-  <body>
-    <main>
-      <h1>{{ heading }}</h1>
-      <form method="post">
-        {% csrf_token %}
-        {{ form.non_field_errors }}
-        {% for field in form %}
-          <div>
-            {{ field.label_tag }}
-            {{ field }}
-            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
-            {{ field.errors }}
-          </div>
-        {% endfor %}
-        <button type="submit">Save profile</button>
-      </form>
-      {% if profile %}
-        <p><a href="{% url 'profile_detail' profile.pk %}">View profile</a></p>
-        <form method="post" action="{% url 'profile_delete' profile.pk %}">
-          {% csrf_token %}<button type="submit">Delete profile</button>
-        </form>
-      {% endif %}
-    </main>
-  </body>
-</html>
+{% extends "base.html" %}
+{% block title %}{{ heading }}{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">{{ heading }}</h1>
+  <form method="post" class="mt-4 max-w-md space-y-2">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}{% include "partials/alert.html" with message=error %}{% endfor %}
+    {% for field in form %}{% include "partials/form_field.html" with field=field %}{% endfor %}
+    {% include "partials/button.html" with label="Save profile" %}
+  </form>
+  {% if profile %}
+    <p class="mt-4"><a class="hover:underline" href="{% url 'profile_detail' profile.pk %}">View profile</a></p>
+    <form method="post" action="{% url 'profile_delete' profile.pk %}" class="mt-2">
+      {% csrf_token %}
+      {% include "partials/button.html" with label="Delete profile" %}
+    </form>
+  {% endif %}
+{% endblock %}
