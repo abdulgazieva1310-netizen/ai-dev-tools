@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Book {{ listing.title|default:"Live lesson" }}{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">Book: {{ listing.title|default:"Live lesson" }}</h1>
+  <p class="mt-2 text-slate-700">{{ listing.duration_minutes }} minutes &middot; {{ listing.point_cost }} points</p>
+  <p class="mt-2"><a class="hover:underline" href="{% url 'listing_detail' listing.pk %}">Back to lesson</a></p>
+
+  {% if listing.listing_type != "live" or listing.state != "published" %}
+    {% include "partials/alert.html" with message="This lesson is not open for booking." %}
+  {% endif %}
+
+  <form method="get" class="mt-4 flex flex-wrap items-end gap-2">
+    <label for="date" class="block text-sm font-medium">Choose a date
+      <input type="date" id="date" name="date" value="{{ selected_day|date:'Y-m-d' }}" class="mt-1 block rounded border border-slate-300 px-2 py-1">
+    </label>
+    {% include "partials/button.html" with label="Show times" %}
+  </form>
+
+  {% if selected_day %}
+    {% if show_booking_form %}
+      <form method="post" class="mt-4 space-y-2">
+        {% csrf_token %}
+        {% for error in form.non_field_errors %}{% include "partials/alert.html" with message=error %}{% endfor %}
+        {% for field in form %}{% include "partials/form_field.html" with field=field %}{% endfor %}
+        {% include "partials/button.html" with label="Book this slot" %}
+      </form>
+    {% else %}
+      <p class="mt-4 text-slate-600">No available start times on {{ selected_day|date:"Y-m-d" }}.</p>
+    {% endif %}
+  {% endif %}
+{% endblock %}

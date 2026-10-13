@@ -1,4 +1,5 @@
-from datetime import time
+import uuid
+from datetime import date, time
 
 from django import forms
 from django.core.exceptions import ValidationError
@@ -12,6 +13,7 @@ from scheduling.models import (
     validate_iana_timezone,
     windows_overlap,
 )
+from scheduling.services import available_start_times, parse_utc_offset
 
 
 def parse_windows(raw):
@@ -189,3 +191,84 @@ class AvailabilityExceptionForm(forms.Form):
                 ]
             )
         return exception
+
+
+class BookingForm(forms.Form):
+    """Server-rendered confirmation form for one live lesson slot.
+
+    The hidden ``idempotency_key`` is generated server-side when the page is
+    rendered and stored on the booking, so a repeat submission cannot write a
+    second booking.
+    """
+
+    idempotency_key = forms.CharField(max_length=255, widget=forms.HiddenInput)
+    local_date = forms.DateField(widget=forms.HiddenInput)
+    start_time = forms.ChoiceField(widget=forms.RadioSelect)
+    duration_minutes = forms.IntegerField(widget=forms.HiddenInput)
+    utc_offset = forms.CharField(
+        required=False,
+        max_length=6,
+        help_text="Only needed to disambiguate a repeated fall-back time.",
+        widget=forms.TextInput(attrs={"placeholder": "-05:00"}),
+    )
+
+    def __init__(self, *args, listing, learner, **kwargs):
+        self.listing = listing
+        self.learner = learner
+        super().__init__(*args, **kwargs)
+        if not self.is_bound:
+            self.initial.setdefault("idempotency_key", uuid.uuid4().hex)
+            self.initial.setdefault("duration_minutes", listing.duration_minutes)
+        self.fields["start_time"].choices = self._offered_choices()
+
+    def _selected_date(self):
+        raw = (
+            self.data.get("local_date")
+            if self.is_bound
+            else self.initial.get("local_date")
+        )
+        if isinstance(raw, date):
+            return raw
+        if raw in (None, ""):
+            return None
+        try:
+            return date.fromisoformat(str(raw))
+        except (TypeError, ValueError):
+            return None
+
+    def _offered_choices(self):
+        day = self._selected_date()
+        if day is None or self.listing.listing_type != self.listing.Type.LIVE:
+            return []
+        starts = available_start_times(
+            self.listing.owner, day, self.listing.duration_minutes
+        )
+        return [(start.strftime("%H:%M"), start.strftime("%H:%M")) for start in starts]
+
+    def clean_start_time(self):
+        value = self.cleaned_data["start_time"]
+        try:
+            return time.fromisoformat(value)
+        except (TypeError, ValueError) as exc:
+            raise forms.ValidationError("Choose a start time.") from exc
+
+    def clean_duration_minutes(self):
+        duration = self.cleaned_data["duration_minutes"]
+        if self.listing.duration_minutes != duration:
+            raise forms.ValidationError("Use the lesson's configured duration.")
+        if duration not in range(15, 181, 15):
+            raise forms.ValidationError(
+                "Use a 15-minute increment between 15 and 180 minutes."
+            )
+        return duration
+
+    def clean_utc_offset(self):
+        raw = self.cleaned_data.get("utc_offset")
+        try:
+            return parse_utc_offset(raw)
+        except ValueError as exc:
+            raise forms.ValidationError(str(exc)) from exc
+
+
+class MeetingLinkForm(forms.Form):
+    meeting_url = forms.URLField(max_length=500)

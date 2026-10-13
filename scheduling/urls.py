@@ -34,4 +34,20 @@ urlpatterns = [
         views.availability_exception_delete,
         name="availability_exception_delete",
     ),
+    path(
+        "listings/<int:listing_id>/book/",
+        views.booking_create,
+        name="booking_create",
+    ),
+    path("bookings/", views.booking_list, name="booking_list"),
+    path(
+        "bookings/<int:booking_id>/",
+        views.booking_detail,
+        name="booking_detail",
+    ),
+    path(
+        "bookings/<int:booking_id>/meeting-link/",
+        views.booking_meeting_link,
+        name="booking_meeting_link",
+    ),
 ]

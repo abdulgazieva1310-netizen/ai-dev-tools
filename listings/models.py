@@ -68,6 +68,12 @@ class Listing(models.Model):
     learning_outcomes = models.TextField(blank=True)
     level = models.CharField(max_length=20, choices=Level.choices, blank=True)
     duration_minutes = models.PositiveSmallIntegerField(null=True, blank=True)
+    point_cost = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        default=10,
+        help_text="Points held when a learner books this live lesson.",
+    )
     state = models.CharField(max_length=20, choices=State.choices, default=State.DRAFT)
     rejection_reason = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -102,6 +108,13 @@ class Listing(models.Model):
                 condition=models.Q(duration_minutes__isnull=True)
                 | models.Q(duration_minutes__in=tuple(range(15, 181, 15))),
                 name="listing_duration_allowed",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(listing_type="live", state="published")
+                    | models.Q(point_cost__isnull=False, point_cost__gt=0)
+                ),
+                name="listing_published_live_point_cost_positive",
             ),
         ]
 
@@ -150,6 +163,10 @@ class Listing(models.Model):
             errors["level"] = "Choose a learner level before submitting."
         if self.duration_minutes not in range(15, 181, 15):
             errors["duration_minutes"] = "Choose 15 to 180 minutes in 15-minute steps."
+        if self.listing_type == Listing.Type.LIVE and (
+            self.point_cost is None or self.point_cost < 1
+        ):
+            errors["point_cost"] = "Enter a positive point cost for a live lesson."
         if errors:
             raise ValidationError(errors)
 

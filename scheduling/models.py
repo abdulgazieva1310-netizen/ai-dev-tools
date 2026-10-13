@@ -182,3 +182,90 @@ def effective_windows(owner, day: date):
     return [
         LocalWindow(rule.start_time, rule.end_time, rule.timezone) for rule in rules
     ]
+
+
+class Booking(models.Model):
+    """One live lesson booked by a learner, holding the listing's point cost.
+
+    ``status`` only ever becomes ``scheduled`` in this task; the remaining
+    values are reserved for the completion/dispute/cancellation/no-show policy
+    in tasks #22 and #23, which read the stored ``reservation`` to capture or
+    release the hold.
+    """
+
+    class Status(models.TextChoices):
+        SCHEDULED = "scheduled", "Scheduled"
+        COMPLETED = "completed", "Completed"
+        DISPUTED = "disputed", "Disputed"
+        CANCELLED = "cancelled", "Cancelled"
+        NO_SHOW_LEARNER = "no_show_learner", "No-show learner"
+        NO_SHOW_TEACHER = "no_show_teacher", "No-show teacher"
+
+    listing = models.ForeignKey(
+        "listings.Listing",
+        on_delete=models.PROTECT,
+        related_name="bookings",
+    )
+    learner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="bookings_as_learner",
+    )
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="bookings_as_teacher",
+    )
+    start_at = models.DateTimeField()
+    end_at = models.DateTimeField()
+    display_timezone = models.CharField(max_length=64)
+    point_cost = models.PositiveIntegerField()
+    meeting_url = models.URLField(blank=True)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.SCHEDULED
+    )
+    idempotency_key = models.CharField(max_length=255, unique=True)
+    reservation = models.OneToOneField(
+        "points.PointReservation",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="booking",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("start_at", "pk")
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end_at__gt=models.F("start_at")),
+                name="booking_end_after_start",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(point_cost__gt=0),
+                name="booking_point_cost_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    status__in=(
+                        "scheduled",
+                        "completed",
+                        "disputed",
+                        "cancelled",
+                        "no_show_learner",
+                        "no_show_teacher",
+                    )
+                ),
+                name="booking_status_allowed",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        try:
+            validate_iana_timezone(self.display_timezone)
+        except ValidationError as exc:
+            raise ValidationError({"display_timezone": exc.messages}) from exc
+
+    def __str__(self):
+        return f"Booking<{self.pk} {self.status} {self.start_at:%Y-%m-%d %H:%M}>"

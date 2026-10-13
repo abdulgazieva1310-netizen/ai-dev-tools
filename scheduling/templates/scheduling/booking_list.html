@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% load tz %}
+{% block title %}My bookings{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">My bookings</h1>
+  {% if bookings %}
+    <ul class="mt-4 space-y-2">
+      {% for booking in bookings %}
+        <li>
+          <a class="font-medium hover:underline" href="{% url 'booking_detail' booking.pk %}">{{ booking.listing.title|default:"Live lesson" }}</a>
+          — {% localtime off %}{{ booking.start_at|date:"Y-m-d H:i" }}{% endlocaltime %} UTC ({{ booking.get_status_display }})
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="mt-4 text-slate-600">You have no bookings yet.</p>
+  {% endif %}
+{% endblock %}
