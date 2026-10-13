@@ -73,8 +73,9 @@ class ListingForm(forms.ModelForm):
         except forms.ValidationError as error:
             if hasattr(error, "error_dict"):
                 for field, errors in error.error_dict.items():
+                    target = field if field in self.fields else None
                     for item in errors:
-                        self.add_error(field, item)
+                        self.add_error(target, item)
             else:
                 self.add_error(None, error)
 

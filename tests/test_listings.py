@@ -201,6 +201,65 @@ def test_submit_form_rejects_uncategorized_skill(client):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("point_cost", [None, 0])
+def test_submit_edit_form_flags_missing_point_cost_without_crashing(client, point_cost):
+    owner = make_user("owner@example.com")
+    skill = categorized_skill()
+    listing = Listing.objects.create(
+        owner=owner,
+        listing_type=Listing.Type.LIVE,
+        state=Listing.State.DRAFT,
+        point_cost=point_cost,
+        title="Lesson",
+        description="Description",
+        learning_outcomes="Outcome",
+        level=Listing.Level.BEGINNER,
+        duration_minutes=60,
+    )
+    client.force_login(owner)
+
+    response = client.post(
+        reverse("listing_edit", args=[listing.pk]),
+        {**listing_data(skill), "action": "submit"},
+    )
+
+    assert response.status_code == 200
+    assert any(
+        "point cost" in str(error)
+        for error in response.context["form"].non_field_errors()
+    )
+    listing.refresh_from_db()
+    assert listing.state == Listing.State.DRAFT
+    assert not Listing.objects.filter(state=Listing.State.PENDING_REVIEW).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("point_cost", [None, 0])
+def test_submit_action_path_also_rejects_missing_point_cost(client, point_cost):
+    owner = make_user("owner@example.com")
+    listing = Listing.objects.create(
+        owner=owner,
+        listing_type=Listing.Type.LIVE,
+        state=Listing.State.DRAFT,
+        point_cost=point_cost,
+        title="Lesson",
+        description="Description",
+        learning_outcomes="Outcome",
+        level=Listing.Level.BEGINNER,
+        duration_minutes=60,
+    )
+    client.force_login(owner)
+
+    response = client.post(
+        reverse("listing_transition", args=[listing.pk]), {"action": "submit"}
+    )
+
+    assert response.status_code == 400
+    listing.refresh_from_db()
+    assert listing.state == Listing.State.DRAFT
+
+
+@pytest.mark.django_db
 def test_draft_can_be_incomplete_but_invalid_duration_is_rejected(client):
     owner = make_user("owner@example.com")
     skill = categorized_skill()
