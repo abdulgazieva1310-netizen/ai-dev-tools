@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}My availability{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">My availability</h1>
+  {% if configured_timezone %}
+    <p class="mt-2 text-slate-700">Times are local wall-clock times in your configured timezone, {{ configured_timezone }}.</p>
+  {% else %}
+    <p class="mt-2 text-slate-700">You have not set an availability timezone yet.</p>
+  {% endif %}
+
+  <section aria-labelledby="weekly-heading" class="mt-6">
+    <h2 id="weekly-heading" class="text-lg font-semibold">Weekly windows</h2>
+    {% if weekday_groups %}
+      {% for group in weekday_groups %}
+        <h3 class="mt-3 font-medium">{{ group.label }}</h3>
+        <ul class="list-disc pl-5">
+          {% for rule in group.rules %}
+            <li>
+              {{ rule.start_time|time:"H:i" }}–{{ rule.end_time|time:"H:i" }} ({{ rule.timezone }})
+              <a class="hover:underline" href="{% url 'availability_rule_edit' rule.pk %}">Edit</a>
+              <a class="hover:underline" href="{% url 'availability_rule_delete' rule.pk %}">Delete</a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endfor %}
+    {% else %}
+      <p class="text-slate-700">No weekly windows yet.</p>
+    {% endif %}
+    <p class="mt-2"><a class="hover:underline" href="{% url 'availability_rule_create' %}">Add a weekly window</a></p>
+  </section>
+
+  <section aria-labelledby="exceptions-heading" class="mt-6">
+    <h2 id="exceptions-heading" class="text-lg font-semibold">Date exceptions</h2>
+    {% if exceptions %}
+      <ul class="list-disc pl-5">
+        {% for exception in exceptions %}
+          <li>
+            {{ exception.date }} ({{ exception.timezone }}):
+            {% if exception.windows.all %}
+              {% for window in exception.windows.all %}{{ window.start_time|time:"H:i" }}–{{ window.end_time|time:"H:i" }}{% if not forloop.last %}, {% endif %}{% endfor %}
+            {% else %}
+              Unavailable all day
+            {% endif %}
+            <a class="hover:underline" href="{% url 'availability_exception_edit' exception.pk %}">Edit</a>
+            <a class="hover:underline" href="{% url 'availability_exception_delete' exception.pk %}">Delete</a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-slate-700">No date exceptions yet.</p>
+    {% endif %}
+    <p class="mt-2"><a class="hover:underline" href="{% url 'availability_exception_create' %}">Add a date exception</a></p>
+  </section>
+{% endblock %}

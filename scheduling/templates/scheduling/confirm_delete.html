@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }}{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold">{{ heading }}</h1>
+  {% include "partials/alert.html" with message="This cannot be undone." %}
+  <p class="mt-2">Delete {{ object }}?</p>
+  <form method="post">
+    {% csrf_token %}
+    {% include "partials/button.html" with label="Delete" %}
+  </form>
+  <p class="mt-4"><a class="hover:underline" href="{% url 'availability' %}">Cancel</a></p>
+{% endblock %}

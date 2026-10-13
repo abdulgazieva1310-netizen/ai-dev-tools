@@ -16,6 +16,7 @@
           <a href="{% url 'listing_index' %}" class="hover:underline">Live lessons</a>
           <a href="{% url 'listing_search' %}" class="hover:underline">Search lessons</a>
           {% if user.is_authenticated %}
+            <a href="{% url 'availability' %}" class="hover:underline">Availability</a>
             <form method="post" action="{% url 'logout' %}" class="inline">
               {% csrf_token %}
               <button type="submit" class="cursor-pointer hover:underline">Log out</button>

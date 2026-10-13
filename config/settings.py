@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     "listings",
     "jobs",
     "points",
+    "scheduling",
     "webassets",
     "mozilla_django_oidc",
 ]

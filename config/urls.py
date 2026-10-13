@@ -15,5 +15,6 @@ urlpatterns = [
     path("", include("accounts.urls")),
     path("", include("profiles.urls")),
     path("", include("listings.urls")),
+    path("", include("scheduling.urls")),
     path("", home, name="home"),
 ]
